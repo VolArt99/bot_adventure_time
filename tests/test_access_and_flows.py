@@ -81,6 +81,17 @@ class CommonCommandFlowTests(unittest.IsolatedAsyncioTestCase):
         _, kwargs = message.answer.await_args
         self.assertNotIn("reply_markup", kwargs)
 
+
+    async def test_menu_command_has_main_menu_markup(self):
+        message = _FakeMessage(user_id=11, text="/menu")
+
+        await common.cmd_menu(message)
+
+        args, kwargs = message.answer.await_args
+        self.assertIn("Adventure Time Control Center", args[0])
+        self.assertEqual(kwargs["reply_markup"].inline_keyboard[0][0].callback_data, "menu_events")
+
+        
     async def test_start_for_existing_member_points_to_menu(self):
         message = _FakeMessage(user_id=11, text="/start")
         message.from_user = SimpleNamespace(id=11, username="u", first_name="A", last_name="B")

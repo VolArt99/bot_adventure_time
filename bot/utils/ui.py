@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import inspect
 import logging
 from collections.abc import Mapping
 from html import escape
@@ -26,10 +27,31 @@ def err(text: str) -> str:
 
 
 async def safe_delete_bot_message(message) -> None:
-    """Удаляет сообщение только если оно отправлено ботом."""
+    """Best-effort удаление сообщения бота.
+
+    Если Telegram прислал автора сообщения, не трогаем сообщения пользователей.
+    Для callback-сообщений без доступного ``from_user`` используем chat/message_id:
+    inline-кнопки в этих сценариях принадлежат сообщениям, отправленным ботом.
+    """
+    if not message:
+        return
+
+    sender = getattr(message, "from_user", None)
+    if sender is not None and not bool(getattr(sender, "is_bot", False)):
+        return
     try:
-        if message and message.from_user and bool(getattr(message.from_user, "is_bot", False)):
-            await message.delete()
+        delete = getattr(message, "delete", None)
+        if callable(delete):
+            result = delete()
+            if inspect.isawaitable(result):
+                await result
+            return
+
+        bot = getattr(message, "bot", None) or getattr(message, "_bot", None)
+        chat_id = getattr(getattr(message, "chat", None), "id", None)
+        message_id = getattr(message, "message_id", None)
+        if bot and chat_id is not None and message_id:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
     except Exception as exc:
         logger.debug("Не удалось удалить сообщение бота: %s", exc)
 

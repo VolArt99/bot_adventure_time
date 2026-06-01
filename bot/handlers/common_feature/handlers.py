@@ -284,6 +284,7 @@ async def cmd_menu(message: Message):
     await message.answer(
         build_main_menu_text(is_admin_or_owner=is_admin_or_owner),
         parse_mode="HTML",
+        reply_markup=main_menu_keyboard(is_admin_or_owner=is_admin_or_owner),
     )
 
 
@@ -293,7 +294,6 @@ async def cmd_help(message: Message):
     await message.answer(
         build_help_text(is_admin_or_owner=is_admin_or_owner),
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(is_admin_or_owner=is_admin_or_owner),
     )
 
 

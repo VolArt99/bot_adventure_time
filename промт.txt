@@ -137,8 +137,7 @@
 - В карточке split bill явно отображается `ID` чека, чтобы его можно было использовать в legacy-командах (`/split_bill_add`, `/split_bill_remove`).
 - `/pending_intro` и `/list_intro` должны отражать только актуальных участников группы; записи исключённых пользователей очищаются из локальной таблицы.
 - В пошаговых ЛС-сценариях (`/create_event`, `/split_bill`) промежуточные сообщения бота удаляются перед отправкой следующей подсказки или итогового ответа через `answer_private_intermediate`; итоговые ответы отправляются через `answer_private_final` и не помечаются на удаление.
-- Callback policy (`CALLBACK_DELETE_WIZARD_MESSAGE`) удаляет wizard-сообщения с кнопками, публичные group callbacks оставляют карточки на месте (`CALLBACK_KEEP_PUBLIC_MESSAGE`).
-
+- Callback policy удаляет сообщения с кнопками только по явному `CALLBACK_DELETE_WIZARD_MESSAGE`; меню и карточки с `CALLBACK_KEEP_PUBLIC_MESSAGE` остаются на месте и могут редактироваться независимо от типа чата.
 ---
 
 ## Правила разработки (обязательные)
