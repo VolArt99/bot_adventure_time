@@ -19,9 +19,10 @@ class FinalizeCallbackTests(unittest.IsolatedAsyncioTestCase):
         callback.answer.assert_awaited_once_with(text="ok", show_alert=False)
         message.delete.assert_awaited_once()
 
-    async def test_keep_policy_does_not_delete_message(self):
+    async def test_keep_policy_does_not_delete_public_message(self):
         message = SimpleNamespace(
             from_user=SimpleNamespace(is_bot=True),
+            chat=SimpleNamespace(type="supergroup"),
             delete=AsyncMock(),
         )
         callback = SimpleNamespace(answer=AsyncMock(), message=message)
@@ -31,6 +32,21 @@ class FinalizeCallbackTests(unittest.IsolatedAsyncioTestCase):
         callback.answer.assert_awaited_once_with(text=None, show_alert=False)
         message.delete.assert_not_awaited()
 
+
+    async def test_keep_policy_deletes_private_bot_message(self):
+        message = SimpleNamespace(
+            from_user=SimpleNamespace(is_bot=True),
+            chat=SimpleNamespace(type="private"),
+            delete=AsyncMock(),
+        )
+        callback = SimpleNamespace(answer=AsyncMock(), message=message)
+
+        await finalize_callback(callback, delete_message=CALLBACK_KEEP_PUBLIC_MESSAGE)
+
+        callback.answer.assert_awaited_once_with(text=None, show_alert=False)
+        message.delete.assert_awaited_once()
+
+        
     async def test_no_message_only_answers(self):
         callback = SimpleNamespace(answer=AsyncMock(), message=None)
 

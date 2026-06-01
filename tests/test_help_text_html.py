@@ -22,6 +22,8 @@ class HelpTextHtmlTests(unittest.TestCase):
         text = build_help_text(is_admin_or_owner=False)
 
         self.assertIn("/menu", text)
+        self.assertIn("Описание кнопок", text)
+        self.assertIn("✅ Пойду", text)
 
     def test_main_menu_text_and_sections_are_styled(self):
         menu_text = build_main_menu_text(is_admin_or_owner=True)
@@ -29,7 +31,10 @@ class HelpTextHtmlTests(unittest.TestCase):
 
         self.assertIn("Adventure Time Control Center", menu_text)
         self.assertIn(CARD_DIVIDER, menu_text)
+        self.assertIn("Что делает каждая кнопка", menu_text)
+        self.assertIn("<b>🎉 Создать</b>", menu_text)
         self.assertIn("🎉 <b>Создание мероприятия</b>", section_text)
+        self.assertIn("Кнопки раздела", section_text)
         self.assertIn("👉 <i>", section_text)
 
     def test_menu_exposes_grouped_command_buttons(self):

@@ -2,6 +2,7 @@
 
 Telegram-бот для приватного сообщества: мероприятия, участие, напоминания, дайджесты, random 1:1 встречи, онбординг новых участников и разделение чеков.
 
+
 ---
 
 ## Зачем нужен этот репозиторий
@@ -90,16 +91,13 @@ Telegram-бот для приватного сообщества: меропри
     │   └── registered_user.py
     ├── handlers/
     │   ├── __init__.py
-    │   ├── common.py                  # фасад-совместимость
     │   ├── common_feature/            # структурный модуль common: handlers/views/services
     │   ├── events.py
     │   ├── participation.py
     │   ├── my_events.py
     │   ├── digest.py
     │   ├── subscriptions.py
-    │   ├── reminders.py
     │   ├── roadmap.py
-    │   ├── split_bill.py              # фасад-совместимость
     │   ├── split_bill_feature/        # структурный модуль split_bill: handlers/views/services
     │   ├── admin.py
     │   └── event_scenarios/
@@ -126,6 +124,7 @@ Telegram-бот для приватного сообщества: меропри
 #### Корень проекта
 - `dynamic_handler.py` — лёгкая обёртка entrypoint для Cloud Functions.
 - `requirements.txt` — корневой файл зависимостей (подтягивает зависимости из `bot/requirements.txt`).
+- `.env.example` — безопасный шаблон переменных окружения без секретов.
 - `README.md` — этот документ.
 - `промт.txt` — проектный технический промт/guide для разработки.
 
@@ -153,12 +152,11 @@ Telegram-бот для приватного сообщества: меропри
 - `common_feature/views.py` — формирование крупных текстов (например, `/help`).
 - `events.py` + `event_scenarios/*` — FSM-сценарии создания/редактирования/категоризации событий.
 - `participation.py` — inline-кнопки участия (иду/резерв/отказ, карпулинг и т.п.).
-- `split_bill.py` — совместимый фасад; основная реализация в `split_bill_feature/*`.
 - `split_bill_feature/handlers.py` — FSM и callback-хендлеры split bill.
 - `split_bill_feature/services.py` — сервисная логика split bill (формат/обновление карточки и т.д.).
 - `split_bill_feature/views.py` — текстовые шаблоны split bill.
 - `roadmap.py` — статистика, top, find, random optin/optout/pairs.
-- `digest.py`, `subscriptions.py`, `my_events.py`, `reminders.py` — соответствующие пользовательские функции.
+- `digest.py`, `subscriptions.py`, `my_events.py` — соответствующие пользовательские функции.
 
 #### `bot/middleware/`
 - `command_access.py` — role-based доступ и лимиты команд.

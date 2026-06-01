@@ -42,7 +42,8 @@ async def safe_delete_message_by_id(bot: Bot, chat_id: int, message_id: int) -> 
         logger.debug("Не удалось удалить сообщение chat_id=%s message_id=%s: %s", chat_id, message_id, exc)
 
 
-def _is_private_message(message) -> bool:
+def is_private_message(message) -> bool:
+    """Возвращает True, если сообщение находится в личном чате."""
     return bool(message and getattr(getattr(message, "chat", None), "type", None) == "private")
 
 
@@ -53,7 +54,7 @@ async def cleanup_private_intermediate_messages(message, state: FSMContext) -> N
     ответа удаляются предыдущие подсказки/ошибки бота. Итоговые сообщения не
     сохраняются через этот helper и поэтому остаются в переписке.
     """
-    if not _is_private_message(message):
+    if not is_private_message(message):
         return
 
     data: Mapping = await state.get_data()
@@ -72,7 +73,7 @@ async def answer_private_intermediate(message, state: FSMContext, *args, **kwarg
     """Отправляет промежуточное сообщение FSM-сценария и запоминает его для удаления."""
     await cleanup_private_intermediate_messages(message, state)
     sent = await message.answer(*args, **kwargs)
-    if _is_private_message(message) and sent:
+    if is_private_message(message) and sent:
         await state.update_data(**{PRIVATE_INTERMEDIATE_MESSAGE_IDS_KEY: [sent.message_id]})
     return sent
 
