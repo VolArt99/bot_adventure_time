@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
 
 
 def build_maps_link(location: str | None) -> str | None:
@@ -16,13 +16,27 @@ def build_maps_link(location: str | None) -> str | None:
     return f"https://www.google.com/maps/search/?api=1&query={quote_plus(cleaned)}"
 
 
-def build_yandex_maps_link(location: str | None) -> str | None:
+def _clean_location(location: str | None) -> str | None:
     if not location:
         return None
     cleaned = location.strip()
+    return cleaned or None
+
+
+def build_yandex_navigator_link(location: str | None) -> str | None:
+    """Возвращает deep link поиска места в приложении Яндекс Навигатор."""
+    cleaned = _clean_location(location)
     if not cleaned:
         return None
-    return f"https://yandex.ru/maps/?text={quote_plus(cleaned)}"
+    return f"yandexnavi://map_search?text={quote(cleaned, safe='')}"
+
+
+def build_yandex_maps_link(location: str | None) -> str | None:
+    """Возвращает deep link поиска места в приложении Яндекс Карты."""
+    cleaned = _clean_location(location)
+    if not cleaned:
+        return None
+    return f"yandexmaps://maps.yandex.ru/?text={quote(cleaned, safe='')}"
 
 
 def build_2gis_maps_link(location: str | None) -> str | None:

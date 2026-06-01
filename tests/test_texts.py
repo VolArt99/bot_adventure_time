@@ -5,7 +5,12 @@ from datetime import datetime
 os.environ.setdefault("BOT_TOKEN", "test-token")
 
 from bot.texts import event_status_badges, format_duration, format_event_period, category_to_hashtags, category_to_branded_hashtags  # noqa: E402
-from bot.utils.event_links import build_google_calendar_link, build_maps_link  # noqa: E402
+from bot.utils.event_links import (  # noqa: E402
+    build_google_calendar_link,
+    build_maps_link,
+    build_yandex_maps_link,
+    build_yandex_navigator_link,
+)
 from bot.utils.pairing import build_random_pairs  # noqa: E402
 from bot.handlers.event_scenarios.shared import CreateEvent, event_step_prompt  # noqa: E402
 from bot.handlers.split_bill_feature.handlers import SplitBillCreate, split_bill_step_prompt  # noqa: E402
@@ -64,6 +69,12 @@ class FeatureHelpersTest(unittest.TestCase):
         calendar_link = build_google_calendar_link(event)
         
         self.assertIn("google.com/maps", build_maps_link(event["location"]))
+        yandex_navigator_link = build_yandex_navigator_link(event["location"])
+        yandex_maps_link = build_yandex_maps_link(event["location"])
+        self.assertIn("yandexnavi://map_search?text=", yandex_navigator_link)
+        self.assertIn("%D0%A1%D0%B0%D0%BD%D0%BA%D1%82", yandex_navigator_link)
+        self.assertIn("yandexmaps://maps.yandex.ru/?text=", yandex_maps_link)
+        self.assertIn("%D0%A1%D0%B0%D0%BD%D0%BA%D1%82", yandex_maps_link)
         self.assertIn("calendar.google.com", calendar_link)
         self.assertIn("dates=20260601T100000%2F20260605T100000", calendar_link)
 
