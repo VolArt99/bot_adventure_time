@@ -72,6 +72,31 @@ class CommandAccessTests(unittest.IsolatedAsyncioTestCase):
         event.answer.assert_awaited()
 
 
+class CommonCommandFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_help_command_has_no_menu_markup(self):
+        message = _FakeMessage(user_id=11, text="/help")
+
+        await common.cmd_help(message)
+
+        _, kwargs = message.answer.await_args
+        self.assertNotIn("reply_markup", kwargs)
+
+    async def test_start_for_existing_member_points_to_menu(self):
+        message = _FakeMessage(user_id=11, text="/start")
+        message.from_user = SimpleNamespace(id=11, username="u", first_name="A", last_name="B")
+
+        with (
+            patch("bot.handlers.common_feature.handlers.get_or_create_user", new=AsyncMock()),
+            patch("bot.handlers.common_feature.handlers.is_user_in_group", new=AsyncMock(return_value=True)),
+            patch("bot.handlers.common_feature.handlers.upsert_approved_member", new=AsyncMock()),
+        ):
+            await common.cmd_start(message)
+
+        args, kwargs = message.answer.await_args
+        self.assertIn("/menu", args[0])
+        self.assertEqual(kwargs["reply_markup"].inline_keyboard[0][0].callback_data, "menu_home")
+
+        
 class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
     async def test_approve_requires_owner_id(self):
         callback = _FakeCallback(user_id=999999, data="approve_user_42")

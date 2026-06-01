@@ -44,10 +44,11 @@ from bot.keyboards import (
     main_menu_keyboard,
     menu_section_keyboard,
     onboarding_start_keyboard,
+    start_menu_keyboard,
     quick_event_templates_keyboard,
     rules_ack_keyboard,
 )
-from bot.texts import GROUP_RULES_TEXT, ONBOARDING_WELCOME_TEXT
+from bot.texts import APPROVED_MEMBER_START_TEXT, GROUP_RULES_TEXT, ONBOARDING_WELCOME_TEXT
 
 from .services import extract_command, is_user_in_group, notify_owner_about_request
 from .views import build_command_action_text, build_help_text, build_main_menu_text, build_menu_section_text
@@ -80,11 +81,9 @@ async def cmd_start(message: Message):
     await get_or_create_user(user_id, username)
     if await is_user_in_group(message, user_id=user_id):
         await upsert_approved_member(user_id, username, full_name, intro_status="completed")
-        is_admin_or_owner = user_id in ADMIN_IDS or user_id == OWNER_ID
         await message.answer(
-            build_main_menu_text(is_admin_or_owner=is_admin_or_owner),
-            parse_mode="HTML",
-            reply_markup=main_menu_keyboard(is_admin_or_owner=is_admin_or_owner),
+            APPROVED_MEMBER_START_TEXT,
+            reply_markup=start_menu_keyboard(),
         )
         return
 
@@ -285,7 +284,6 @@ async def cmd_menu(message: Message):
     await message.answer(
         build_main_menu_text(is_admin_or_owner=is_admin_or_owner),
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(is_admin_or_owner=is_admin_or_owner),
     )
 
 
@@ -461,12 +459,22 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
     if not text:
         await finalize_callback(callback, "Действие недоступно", show_alert=True)
         return
-    await callback.message.answer(
+    await _replace_callback_message(
+        callback,
         text,
-        parse_mode="HTML",
         reply_markup=main_menu_keyboard(is_admin_or_owner=is_admin_or_owner),
     )
     await finalize_callback(callback, "Подсказка открыта")
+
+
+async def _replace_callback_message(callback: CallbackQuery, text: str, *, reply_markup=None) -> None:
+    """Редактирует текущее меню вместо отправки нового сообщения."""
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=reply_markup)
 
 
 @router.callback_query(F.data.startswith("menu_cmd_"))
@@ -477,9 +485,9 @@ async def menu_command_callback(callback: CallbackQuery):
         await finalize_callback(callback, "Команда недоступна", show_alert=True)
         return
     is_admin_or_owner = callback.from_user.id in ADMIN_IDS or callback.from_user.id == OWNER_ID
-    await callback.message.answer(
+    await _replace_callback_message(
+        callback,
         text,
-        parse_mode="HTML",
         reply_markup=main_menu_keyboard(is_admin_or_owner=is_admin_or_owner),
     )
     await finalize_callback(callback, "Команда открыта")
@@ -490,9 +498,9 @@ async def menu_callback(callback: CallbackQuery):
     section = callback.data.removeprefix("menu_")
     is_admin_or_owner = callback.from_user.id in ADMIN_IDS or callback.from_user.id == OWNER_ID
     if section == "home":
-        await callback.message.answer(
+        await _replace_callback_message(
+            callback,
             build_main_menu_text(is_admin_or_owner=is_admin_or_owner),
-            parse_mode="HTML",
             reply_markup=main_menu_keyboard(is_admin_or_owner=is_admin_or_owner),
         )
         await finalize_callback(callback, "Главное меню")
@@ -508,9 +516,9 @@ async def menu_callback(callback: CallbackQuery):
         if section == "quick"
         else menu_section_keyboard(section, is_admin_or_owner=is_admin_or_owner)
     )
-    await callback.message.answer(
+    await _replace_callback_message(
+        callback,
         text,
-        parse_mode="HTML",
         reply_markup=reply_markup,
     )
     await finalize_callback(callback, "Раздел открыт")

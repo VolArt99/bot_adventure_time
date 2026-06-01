@@ -85,6 +85,22 @@ def quick_event_templates_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
+                InlineKeyboardButton(text="💪 Спорт", callback_data="template_event_sport"),
+                InlineKeyboardButton(text="🗣 Языковой клуб", callback_data="template_event_language"),
+            ],
+            [
+                InlineKeyboardButton(text="🍔 Еда", callback_data="template_event_food"),
+                InlineKeyboardButton(text="🎬 Кино", callback_data="template_event_movie"),
+            ],
+            [
+                InlineKeyboardButton(text="🔭 Астрономия", callback_data="template_event_astronomy"),
+                InlineKeyboardButton(text="🎓 Лекция", callback_data="template_event_lecture"),
+            ],
+            [
+                InlineKeyboardButton(text="🏎 Картинг", callback_data="template_event_karting"),
+                InlineKeyboardButton(text="🖥 Кооп на ПК", callback_data="template_event_pc_coop"),
+            ],            
+            [
                 InlineKeyboardButton(text="📚 Книжный клуб", callback_data="template_event_book"),
                 InlineKeyboardButton(text="🧠 Квиз", callback_data="template_event_quiz"),
             ],
@@ -92,31 +108,25 @@ def quick_event_templates_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🎲 Настолки", callback_data="template_event_boardgames"),
                 InlineKeyboardButton(text="🚶 Прогулка", callback_data="template_event_walk"),
             ],
-            [InlineKeyboardButton(text="🍽 Ужин", callback_data="template_event_dinner")],
-            [InlineKeyboardButton(text="🏠 В меню", callback_data="menu_create_event")],
+            [InlineKeyboardButton(text="🏠 В события", callback_data="menu_events")],
         ]
+    )
+
+
+def start_menu_keyboard() -> InlineKeyboardMarkup:
+    """Кнопка перехода из /start в главное меню."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🏠 Открыть /menu", callback_data="menu_home")]]
     )
 
 
 def main_menu_keyboard(is_admin_or_owner: bool = False) -> InlineKeyboardMarkup:
     """Визуальное меню основных команд для личных сообщений."""
     rows = [
-        [
-            InlineKeyboardButton(text="🎉 Создать", callback_data="menu_create_event"),
-            InlineKeyboardButton(text="📅 Мои", callback_data="menu_my_events"),
-        ],
-        [
-            InlineKeyboardButton(text="🧾 Чек", callback_data="menu_split_bill"),
-            InlineKeyboardButton(text="📣 Афиша", callback_data="menu_digest"),
-        ],
-        [
-            InlineKeyboardButton(text="🔔 Подписки", callback_data="menu_subscriptions"),
-            InlineKeyboardButton(text="🤝 Комьюнити", callback_data="menu_community"),
-        ],
-        [
-            InlineKeyboardButton(text="⚡ Быстрые сценарии", callback_data="menu_quick"),
-            InlineKeyboardButton(text="🧭 Все команды", callback_data="menu_commands"),
-        ],
+        [InlineKeyboardButton(text="🎉 События", callback_data="menu_events")],
+        [InlineKeyboardButton(text="🧾 Деньги", callback_data="menu_money")],
+        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu_notifications")],
+        [InlineKeyboardButton(text="🤝 Комьюнити", callback_data="menu_community")],
         [InlineKeyboardButton(text="❓ Помощь", callback_data="menu_help")],
     ]
     if is_admin_or_owner:
@@ -127,31 +137,19 @@ def main_menu_keyboard(is_admin_or_owner: bool = False) -> InlineKeyboardMarkup:
 def menu_section_keyboard(section: str, is_admin_or_owner: bool = False) -> InlineKeyboardMarkup:
     """Кнопки команд внутри выбранного раздела меню."""
     section_rows: dict[str, list[list[InlineKeyboardButton]]] = {
-        "create_event": [
+        "events": [
             [InlineKeyboardButton(text="🎉 /create_event", callback_data="menu_action_create_event")],
             [InlineKeyboardButton(text="⚡ Быстрые шаблоны", callback_data="menu_quick")],
-        ],
-        "my_events": [
             [InlineKeyboardButton(text="📅 /my_events", callback_data="menu_action_my_events")],
+            [InlineKeyboardButton(text="📣 /digest", callback_data="menu_action_digest")],
+            [InlineKeyboardButton(text="🔎 /find_events", callback_data="menu_cmd_find_events")],
             [InlineKeyboardButton(text="🔗 /send_event_card", callback_data="menu_cmd_send_event_card")],
             [InlineKeyboardButton(text="👤 /set_responsible", callback_data="menu_cmd_set_responsible")],
             [InlineKeyboardButton(text="➕ /add_participant_manual", callback_data="menu_cmd_add_participant_manual")],
             [InlineKeyboardButton(text="🚗 /set_carpool_manual", callback_data="menu_cmd_set_carpool_manual")],
             [InlineKeyboardButton(text="👥 /add_passenger_manual", callback_data="menu_cmd_add_passenger_manual")],
         ],
-        "split_bill": [
-            [InlineKeyboardButton(text="🧾 /split_bill", callback_data="menu_action_split_bill")],
-            [
-                InlineKeyboardButton(text="➕ /split_bill_add", callback_data="menu_cmd_split_bill_add"),
-                InlineKeyboardButton(text="➖ /split_bill_remove", callback_data="menu_cmd_split_bill_remove"),
-            ],
-        ],
-        "digest": [
-            [InlineKeyboardButton(text="📣 /digest", callback_data="menu_action_digest")],
-            [InlineKeyboardButton(text="✨ /my_digest", callback_data="menu_action_my_digest")],
-            [InlineKeyboardButton(text="🔎 /find_events", callback_data="menu_cmd_find_events")],
-        ],
-        "subscriptions": [
+        "notifications": [
             [InlineKeyboardButton(text="🔔 /subscriptions", callback_data="menu_action_subscriptions")],
             [InlineKeyboardButton(text="✨ /my_digest", callback_data="menu_action_my_digest")],
         ],
@@ -169,18 +167,11 @@ def menu_section_keyboard(section: str, is_admin_or_owner: bool = False) -> Inli
             [InlineKeyboardButton(text="❓ /help", callback_data="menu_cmd_help")],
             [InlineKeyboardButton(text="✅ /status", callback_data="menu_cmd_status")],
         ],
-        "commands": [
+        "money": [
+            [InlineKeyboardButton(text="🧾 /split_bill", callback_data="menu_action_split_bill")],
             [
-                InlineKeyboardButton(text="🚀 База", callback_data="menu_help"),
-                InlineKeyboardButton(text="🎉 События", callback_data="menu_create_event"),
-            ],
-            [
-                InlineKeyboardButton(text="📣 Афиша", callback_data="menu_digest"),
-                InlineKeyboardButton(text="🔔 Подписки", callback_data="menu_subscriptions"),
-            ],
-            [
-                InlineKeyboardButton(text="🤝 Комьюнити", callback_data="menu_community"),
-                InlineKeyboardButton(text="🧾 Чеки", callback_data="menu_split_bill"),
+                InlineKeyboardButton(text="➕ /split_bill_add", callback_data="menu_cmd_split_bill_add"),
+                InlineKeyboardButton(text="➖ /split_bill_remove", callback_data="menu_cmd_split_bill_remove"),
             ],
         ],
     }
@@ -203,7 +194,6 @@ def menu_section_keyboard(section: str, is_admin_or_owner: bool = False) -> Inli
             [InlineKeyboardButton(text="Пары", callback_data="menu_action_random_pairs")],
             [InlineKeyboardButton(text="1:1", callback_data="menu_cmd_random_optin_count")],
         ]
-        section_rows["commands"].append([InlineKeyboardButton(text="Админ-команды", callback_data="menu_admin")])
 
     rows = section_rows.get(section, []) + [[InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu_home")]]
     return InlineKeyboardMarkup(inline_keyboard=rows)
