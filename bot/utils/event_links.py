@@ -24,19 +24,19 @@ def _clean_location(location: str | None) -> str | None:
 
 
 def build_yandex_navigator_link(location: str | None) -> str | None:
-    """Возвращает deep link поиска места в приложении Яндекс Навигатор."""
+    """Возвращает HTTPS-ссылку поиска места в Яндекс Навигаторе."""
     cleaned = _clean_location(location)
     if not cleaned:
         return None
-    return f"yandexnavi://map_search?text={quote(cleaned, safe='')}"
+    return f"https://yandex.ru/navi/?text={quote_plus(cleaned)}"
 
 
 def build_yandex_maps_link(location: str | None) -> str | None:
-    """Возвращает deep link поиска места в приложении Яндекс Карты."""
+    """Возвращает HTTPS-ссылку поиска места в Яндекс Картах."""
     cleaned = _clean_location(location)
     if not cleaned:
         return None
-    return f"yandexmaps://maps.yandex.ru/?text={quote(cleaned, safe='')}"
+    return f"https://yandex.ru/maps/?text={quote_plus(cleaned)}"
 
 
 def build_2gis_maps_link(location: str | None) -> str | None:
