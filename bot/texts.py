@@ -12,7 +12,6 @@ from bot.utils.event_links import (
     build_maps_link,
     build_yandex_calendar_link,
     build_yandex_maps_link,
-    build_yandex_navigator_link,
 )
 
 TZ = pytz.timezone(TIMEZONE)
@@ -235,17 +234,14 @@ async def format_event_message(
     lines.extend(card_section("Резерв", [waitlist_names]))
 
     maps_link = build_maps_link(event.get("location"))
-    y_navigator_link = build_yandex_navigator_link(event.get("location"))
     y_maps_link = build_yandex_maps_link(event.get("location"))
     dgis_link = build_2gis_maps_link(event.get("location"))
     gcal_link = build_google_calendar_link(event)
     ycal_link = build_yandex_calendar_link(event)
-    if maps_link or y_navigator_link or y_maps_link or dgis_link or gcal_link or ycal_link:
+    if maps_link or y_maps_link or dgis_link or gcal_link or ycal_link:
         lines.extend(card_section("🔗 Полезные ссылки", []))
         if maps_link:
             lines.append(f'• <a href="{maps_link}">Google Maps</a>')
-        if y_navigator_link:
-            lines.append(f'• <a href="{y_navigator_link}">Яндекс Навигатор</a>')
         if y_maps_link:
             lines.append(f'• <a href="{y_maps_link}">Яндекс Карты</a>')
         if dgis_link:

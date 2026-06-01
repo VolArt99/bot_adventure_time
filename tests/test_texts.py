@@ -1,10 +1,18 @@
+import asyncio
 import os
 import unittest
 from datetime import datetime
 
 os.environ.setdefault("BOT_TOKEN", "test-token")
 
-from bot.texts import event_status_badges, format_duration, format_event_period, category_to_hashtags, category_to_branded_hashtags  # noqa: E402
+from bot.texts import (  # noqa: E402
+    event_status_badges,
+    format_duration,
+    format_event_period,
+    category_to_hashtags,
+    category_to_branded_hashtags,
+    format_event_message,
+)
 from bot.utils.event_links import (  # noqa: E402
     build_google_calendar_link,
     build_maps_link,
@@ -81,6 +89,26 @@ class FeatureHelpersTest(unittest.TestCase):
         self.assertIn("calendar.google.com", calendar_link)
         self.assertIn("dates=20260601T100000%2F20260605T100000", calendar_link)
 
+
+    def test_event_message_uses_yandex_maps_without_navigator(self):
+        event = {
+            "id": 1,
+            "title": "Вело",
+            "description": "Тренировка",
+            "location": "Санкт-Петербург, Невский 1",
+            "date_time": "2026-06-01T10:00:00+03:00",
+            "duration_minutes": 90,
+            "participant_limit": 10,
+            "category": "спорт",
+        }
+
+        text = asyncio.run(format_event_message(event, [], [], {}))
+
+        self.assertIn("Яндекс Карты", text)
+        self.assertNotIn("Яндекс Навигатор", text)
+        self.assertNotIn("/navi/", text)
+
+        
     def test_regular_event_calendar_link_uses_duration_without_period(self):
         event = {
             "title": "Вело",
