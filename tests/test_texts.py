@@ -23,6 +23,7 @@ from bot.utils.pairing import build_random_pairs  # noqa: E402
 from bot.handlers.event_scenarios.shared import CreateEvent, event_step_prompt  # noqa: E402
 from bot.handlers.split_bill_feature.handlers import SplitBillCreate, split_bill_step_prompt  # noqa: E402
 from bot.handlers.split_bill_feature.services import build_payment_progress_bar  # noqa: E402
+from bot.utils.design import card_progress_bar  # noqa: E402
 from bot.texts import format_digest_text  # noqa: E402
 
 class TextFormattersTest(unittest.TestCase):
@@ -51,6 +52,10 @@ class TextFormattersTest(unittest.TestCase):
         self.assertEqual(event_status_badges(event, 1, 0, now=now), "🔥 скоро · ✅ набор открыт")
         self.assertEqual(event_status_badges(event, 2, 0, now=now), "🔥 скоро · 🚫 мест нет")
         self.assertEqual(event_status_badges(event, 2, 1, now=now), "🔥 скоро · ⏳ резерв")
+
+    def test_card_progress_bar_for_visual_summary(self):
+        self.assertEqual(card_progress_bar(3, 6), "████░░░░")
+        self.assertEqual(card_progress_bar(3, None), "░░░░░░░░")
 
     def test_format_event_period(self):
         start_dt = datetime.fromisoformat("2026-06-01T10:00:00+03:00")
@@ -104,6 +109,8 @@ class FeatureHelpersTest(unittest.TestCase):
 
         text = asyncio.run(format_event_message(event, [], [], {}))
 
+        self.assertIn("⚡ Быстрый взгляд", text)
+        self.assertIn("🎟 Места:", text)
         self.assertIn("Яндекс Карты", text)
         self.assertNotIn("Яндекс Навигатор", text)
         self.assertNotIn("/navi/", text)

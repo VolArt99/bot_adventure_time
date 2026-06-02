@@ -7,7 +7,7 @@ import asyncio
 import logging
 import traceback
 from datetime import datetime, timezone
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.strategy import FSMStrategy
 
@@ -25,6 +25,7 @@ import bot.handlers.split_bill_feature.handlers as split_bill
 from bot.utils.scheduler import restore_jobs, start_scheduler
 from bot.fsm_storage_ydb import YdbStorage
 from bot.init_flags import should_run_schema_init, should_run_schema_init_webhook
+from bot.utils.helpers import build_owner_contact_html
 
 from aiogram.types import BotCommand, BotCommandScopeDefault, Update
 from bot.commands import COMMAND_SPECS
@@ -109,13 +110,15 @@ async def _notify_user_about_error(event: Update | None) -> None:
         user_id = event.callback_query.from_user.id
     if not user_id:
         return
-    from bot.config import OWNER_ID
+    from bot.config import OWNER_CONTACT, OWNER_ID
+
+    owner_contact = build_owner_contact_html(OWNER_CONTACT, OWNER_ID)
     text = (
         "❌ Команда не сработала. Пожалуйста, обратитесь в поддержку к владельцу группы.\n"
-        f"Контакт: tg://user?id={OWNER_ID}"
+        f"Контакт: {owner_contact}"
     )
     try:
-        await bot.send_message(user_id, text, disable_web_page_preview=True)
+        await bot.send_message(user_id, text, parse_mode="HTML", disable_web_page_preview=True)
     except Exception:
         logger.exception("Не удалось уведомить пользователя об ошибке")
 

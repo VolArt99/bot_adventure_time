@@ -17,7 +17,7 @@ from bot.database import (
     remove_split_bill_participant,
     update_split_bill_message_id,
 )
-from bot.utils.helpers import get_user_mention, get_user_mentions
+from bot.utils.helpers import get_user_mentions
 from bot.utils.design import BRAND, card_cta, card_header, card_section
 from bot.utils.ui import answer_private_final
 

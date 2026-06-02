@@ -1,13 +1,16 @@
 import asyncio
 import logging
+import re
 import time
 from html import escape
+from urllib.parse import quote, urlparse
 
 from aiogram import Bot
 
 logger = logging.getLogger(__name__)
 USER_MENTION_CACHE_TTL_SECONDS = 3600
 _user_mentions_cache: dict[int, tuple[float, str]] = {}
+_TELEGRAM_USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{5,32}$")
 
 
 def build_event_message_link(chat_id: int, message_id: int | None) -> str | None:
@@ -24,6 +27,37 @@ def build_event_message_link(chat_id: int, message_id: int | None) -> str | None
         chat_part = chat_str
 
     return f"https://t.me/c/{chat_part}/{message_id}"
+
+
+def _strip_control_chars(value: str) -> str:
+    """Удаляет управляющие символы, которые не должны попадать в HTML/URL."""
+    return "".join(ch for ch in value if ch >= " " and ch != "\x7f").strip()
+
+
+def build_owner_contact_html(owner_contact: str | None, owner_id: int, *, label: str = "владельцу") -> str:
+    """Возвращает безопасный HTML-контакт владельца для сообщений Telegram."""
+    safe_label = escape(_strip_control_chars(label) or "владельцу")
+    contact = _strip_control_chars(owner_contact or "")
+
+    if contact.startswith("@"):
+        username = contact[1:]
+        if _TELEGRAM_USERNAME_RE.fullmatch(username):
+            return f'<a href="https://t.me/{quote(username)}">{safe_label}</a>'
+        return escape(contact)
+
+    if contact.startswith("https://"):
+        parsed = urlparse(contact)
+        if parsed.scheme == "https" and parsed.netloc:
+            safe_url = escape(contact, quote=True)
+            return f'<a href="{safe_url}">{safe_label}</a>'
+        return escape(contact)
+
+    if contact:
+        return escape(contact)
+
+    if owner_id > 0:
+        return f'<a href="tg://user?id={int(owner_id)}">{safe_label}</a>'
+    return safe_label
 
 
 async def get_username_by_id(user_id: int, bot: Bot) -> str | None:

@@ -5,7 +5,7 @@ import pytz
 
 from bot.config import TIMEZONE
 from bot.constants import EVENT_CATEGORY_GROUPS, category_badge
-from bot.utils.design import BRAND, CARD_DIVIDER, card_cta, card_header, card_section
+from bot.utils.design import BRAND, card_cta, card_header, card_progress_bar, card_section
 from bot.utils.event_links import (
     build_2gis_maps_link,
     build_google_calendar_link,
@@ -169,18 +169,23 @@ async def format_event_message(
     going_count = len(going_list)
     limit_value = event.get("participant_limit")
     limit_str = str(limit_value) if limit_value else "∞"
+    limit_int = int(limit_value) if str(limit_value or "").isdigit() else None
 
     if price_total > 0 and going_count > 0:
         calculated_per_person = round(price_total / going_count, 2)
         price_text = (
             f"💰 Общая: {price_total} ₽\n" f"💰 С человека: {calculated_per_person} ₽"
         )
+        price_summary = f"общая {price_total} ₽ · примерно {calculated_per_person} ₽/чел"
     elif price_total > 0:
         price_text = f"💰 Общая: {price_total} ₽"
+        price_summary = f"общая {price_total} ₽"
     elif price_per_person > 0:
         price_text = f"💰 С человека: {price_per_person} ₽"
+        price_summary = f"{price_per_person} ₽/чел"
     else:
         price_text = "💰 Бесплатно"
+        price_summary = "бесплатно"
 
     weather = (
         f"🌤 Погода: {escape(event['weather_info'])}"
@@ -216,6 +221,13 @@ async def format_event_message(
     if weather:
         lines.append(weather)
 
+    quick_lines = [
+        f"🎟 Места: {card_progress_bar(going_count, limit_int)} {going_count}/{limit_str}",
+        f"💸 Стоимость: {escape(price_summary)}",
+        f"🚗 Карпулинг: {'включён' if event.get('carpool_enabled') else 'нет'}",
+    ]
+    lines.extend(card_section("⚡ Быстрый взгляд", quick_lines))
+    
     lines.extend(
         card_section(
             "Детали",

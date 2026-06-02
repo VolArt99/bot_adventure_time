@@ -9,7 +9,6 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from bot.keyboards import event_actions
 from bot.texts import format_event_message
 from bot.utils.helpers import get_username_by_id, get_user_mentions
-from bot.utils.ui import safe_delete_bot_message
 from bot.config import GROUP_ID, ADMIN_IDS
 
 from aiogram.fsm.state import StatesGroup, State

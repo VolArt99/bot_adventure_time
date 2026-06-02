@@ -5,7 +5,7 @@
 aiogram>=3.4.0
 apscheduler>=3.10.4
 python-dotenv>=1.0.0
-aiohttp>=3.9.1
+aiohttp>=3.13.4
 pytz>=2024.1
 ydb>=3.0.0
 ydb[aio]>=3.0.0

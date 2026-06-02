@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
-from html import escape
-from urllib.parse import quote
 
 import aiogram
 from aiogram import F, Router
@@ -12,6 +10,7 @@ from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from bot.utils.callbacks import finalize_callback
+from bot.utils.helpers import build_owner_contact_html
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 
 from bot.config import (
@@ -59,18 +58,7 @@ router = Router()
 
 def _owner_contact_html() -> str:
     """Контакт владельца для onboarding-сообщений."""
-    if OWNER_CONTACT:
-        if OWNER_CONTACT.startswith("@"):
-            username = OWNER_CONTACT[1:]
-            if username.replace("_", "").isalnum():
-                return f'<a href="https://t.me/{quote(username)}">{escape(OWNER_CONTACT)}</a>'
-        if OWNER_CONTACT.startswith("http://") or OWNER_CONTACT.startswith("https://"):
-            safe_url = escape(OWNER_CONTACT, quote=True)
-            return f'<a href="{safe_url}">контакт владельца</a>'
-        return escape(OWNER_CONTACT)
-    if OWNER_ID:
-        return f'<a href="tg://user?id={OWNER_ID}">владельцу</a>'
-    return "владельцу"
+    return build_owner_contact_html(OWNER_CONTACT, OWNER_ID)
 
 
 @router.message(CommandStart())

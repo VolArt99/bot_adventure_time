@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from urllib.parse import quote, quote_plus
+from urllib.parse import quote_plus
 
 
 def build_maps_link(location: str | None) -> str | None:

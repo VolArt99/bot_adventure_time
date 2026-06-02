@@ -23,7 +23,6 @@ from .services import (
     add_split_bill_participant,
     close_bill_if_ready,
     finalize_split_bill,
-    format_split_bill_text,
     get_split_bill,
     get_split_bill_participants,
     mark_split_bill_paid,

@@ -14,7 +14,6 @@ import ydb
 import ydb.aio
 import ydb.iam
 from typing import Optional, List, Dict, Any
-from aiogram import Bot
 from bot.utils.metrics import LatencyMetrics
 
 logger = logging.getLogger(__name__)

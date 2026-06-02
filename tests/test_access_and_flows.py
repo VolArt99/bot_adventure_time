@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 os.environ.setdefault("BOT_TOKEN", "test-token")
 os.environ.setdefault("OWNER_ID", "12345")
 from bot.middleware.command_access import CommandAccessMiddleware  # noqa: E402
+from bot.utils.helpers import build_owner_contact_html  # noqa: E402
 
 common = importlib.import_module("bot.handlers.common_feature.handlers")
 participation = importlib.import_module("bot.handlers.participation")
@@ -117,6 +118,54 @@ class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
         callback.answer.assert_awaited()
         callback.bot.create_chat_invite_link.assert_not_awaited()
 
+
+    def test_owner_contact_uses_clickable_owner_label_for_username(self):
+        with patch.object(common, "OWNER_CONTACT", "@source_owner"):
+            self.assertEqual(
+                common._owner_contact_html(),
+                '<a href="https://t.me/source_owner">владельцу</a>',
+            )
+
+    def test_owner_contact_uses_clickable_owner_label_for_link(self):
+        with patch.object(common, "OWNER_CONTACT", "https://t.me/source_owner"):
+            self.assertEqual(
+                common._owner_contact_html(),
+                '<a href="https://t.me/source_owner">владельцу</a>',
+            )
+
+
+    def test_owner_contact_strips_control_chars_and_escapes_text(self):
+        self.assertEqual(
+            build_owner_contact_html("bad\x00<contact>", 0),
+            "bad&lt;contact&gt;",
+        )
+
+
+    def test_owner_contact_does_not_link_insecure_http_url(self):
+        self.assertEqual(
+            build_owner_contact_html("http://t.me/source_owner", 0),
+            "http://t.me/source_owner",
+        )
+
+    async def test_approve_message_links_owner_contact(self):
+        owner_callback = _FakeCallback(user_id=common.OWNER_ID, data="approve_user_42")
+
+        with (
+            patch.object(common, "OWNER_CONTACT", "@source_owner"),
+            patch(
+                "bot.handlers.common_feature.handlers.approve_pending_user",
+                new=AsyncMock(return_value={"user_id": 42}),
+            ),
+        ):
+            await common.owner_approve_user(owner_callback)
+
+        owner_callback.bot.send_message.assert_awaited_once()
+        args, kwargs = owner_callback.bot.send_message.await_args
+        self.assertEqual(args[0], 42)
+        self.assertIn('<a href="https://t.me/source_owner">владельцу</a>', args[1])
+        self.assertEqual(kwargs["parse_mode"], "HTML")
+
+        
     async def test_reject_flow_for_owner(self):
         owner_callback = _FakeCallback(user_id=common.OWNER_ID, data="reject_user_42")
 
