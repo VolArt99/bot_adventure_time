@@ -302,7 +302,7 @@ def broadcast_topics_keyboard(topics: list[dict], period: str) -> InlineKeyboard
         topic_id = topic.get("message_thread_id") or topic.get("id")
         topic_name = topic.get("name", f"Тема {topic_id}")
         builder.button(
-            text=f"📁 {topic_name}",
+            text=topic_name,
             callback_data=f"broadcast_topic_{period}_{topic_id}",
         )
 
@@ -319,7 +319,7 @@ def random_pairs_topics_keyboard(topics: list[dict]) -> InlineKeyboardMarkup:
         topic_id = topic.get("message_thread_id") or topic.get("id")
         topic_name = topic.get("name", f"Тема {topic_id}")
         builder.button(
-            text=f"📁 {topic_name}",
+            text=topic_name,
             callback_data=f"random_pairs_topic_{topic_id}",
         )
 

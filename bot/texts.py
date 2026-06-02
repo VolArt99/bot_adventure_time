@@ -187,6 +187,7 @@ async def format_event_message(
     price_total = event.get("price_total") or 0
     price_per_person = event.get("price_per_person") or 0
     going_count = len(going_list)
+    waitlist_count = len(waitlist_list)
     limit_value = event.get("participant_limit")
     limit_str = str(limit_value) if limit_value else "∞"
     limit_int = int(limit_value) if str(limit_value or "").isdigit() else None
@@ -222,6 +223,7 @@ async def format_event_message(
     )
 
     hero = f"📅 {date_str} в {time_str} · 📍 {location}"
+    status_badges = event_status_badges(event, going_count, waitlist_count)
     lines = [
         *card_header(BRAND["event"], title, status_badges),
         f"<b>{hero}</b>",

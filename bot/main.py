@@ -116,10 +116,10 @@ async def _notify_user_about_error(event: Update | None) -> None:
         return
     from bot.config import OWNER_CONTACT, OWNER_ID
 
-    owner_contact = build_owner_contact_html(OWNER_CONTACT, OWNER_ID)
+    owner_contact = build_owner_contact_html(OWNER_CONTACT or "@Vol_Artem", OWNER_ID)
     text = (
-        "❌ Команда не сработала. Пожалуйста, обратитесь в поддержку к владельцу группы.\n"
-        f"Контакт: {owner_contact}"
+        "❌ Команда не сработала. Пожалуйста, обратитесь в поддержку к владельцу группы. "
+        f"Свяжитесь с админом {owner_contact}."
     )
     try:
         await bot.send_message(user_id, text, parse_mode="HTML", disable_web_page_preview=True)
