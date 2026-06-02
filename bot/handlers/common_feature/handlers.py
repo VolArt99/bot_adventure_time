@@ -73,7 +73,7 @@ router = Router()
 
 def _owner_contact_html() -> str:
     """Контакт владельца для onboarding-сообщений."""
-    return build_owner_contact_html(OWNER_CONTACT, OWNER_ID)
+    return build_owner_contact_html(OWNER_CONTACT or "@Vol_Artem", OWNER_ID)
 
 
 @router.message(CommandStart())
