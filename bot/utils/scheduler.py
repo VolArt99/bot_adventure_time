@@ -92,7 +92,7 @@ async def send_reminder(event_id: int, interval: int, bot):
 
 
 async def restore_jobs(bot):
-    """⚠️ ОБНОВЛЕНО: Восстанавливает напоминания при старте бота."""
+    """Восстанавливает напоминания при старте бота."""
     logger.info("Восстановление запланированных напоминаний...")
     events = await get_active_events()
     count = 0

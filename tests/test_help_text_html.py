@@ -4,8 +4,18 @@ import unittest
 os.environ.setdefault("BOT_TOKEN", "test-token")
 os.environ.setdefault("OWNER_ID", "12345")
 
-from bot.handlers.common_feature.views import build_command_action_text, build_help_text, build_main_menu_text, build_menu_section_text
-from bot.keyboards import main_menu_keyboard, menu_section_keyboard, quick_event_templates_keyboard, start_menu_keyboard
+from bot.handlers.common_feature.views import (
+    build_approval_message,
+    build_command_action_text,
+    build_help_text,
+    build_main_menu_text,
+    build_menu_section_text,
+    build_group_rules_text,
+    build_onboarding_guard_text,
+    build_onboarding_welcome_text,
+    build_owner_request_text,
+)
+from bot.keyboards import event_actions, main_menu_keyboard, menu_section_keyboard, quick_event_templates_keyboard, start_menu_keyboard
 from bot.utils.design import CARD_DIVIDER
 
 
@@ -39,6 +49,29 @@ class HelpTextHtmlTests(unittest.TestCase):
         self.assertIn("🟣🎉 <b>События</b>", section_text)
         self.assertIn("👉 <i>", section_text)
 
+
+    def test_onboarding_and_owner_texts_are_view_builders(self):
+        approval = build_approval_message(
+            invite_link="https://t.me/+invite&x=<tag>",
+            owner_contact_html='<a href="https://t.me/source_owner">@source_owner</a>',
+        )
+        owner_request = build_owner_request_text(
+            user_id=42,
+            full_name="<Alice> & Bob",
+            username="bad<tag>",
+        )
+
+        self.assertIn("напишите владельцу:", approval)
+        self.assertIn("https://t.me/+invite&amp;x=&lt;tag&gt;", approval)
+        self.assertIn("@source_owner", approval)
+        self.assertIn("Шаг 1/3 · Старт", build_onboarding_welcome_text())
+        self.assertIn("Шаг 2/3 · Правила", build_group_rules_text())
+        self.assertIn("Шаг 3/3 · Вход в группу", approval)
+        self.assertIn("Правила изучил(а)", build_onboarding_guard_text())
+        self.assertIn("&lt;Alice&gt; &amp; Bob", owner_request)
+        self.assertIn("@bad&lt;tag&gt;", owner_request)
+
+
     def test_menu_exposes_grouped_command_buttons(self):
         main_menu = main_menu_keyboard(is_admin_or_owner=True)
         labels = [button.text for row in main_menu.inline_keyboard for button in row]
@@ -55,6 +88,17 @@ class HelpTextHtmlTests(unittest.TestCase):
         self.assertIn("🎉 /create_event", event_labels)
         self.assertIn("🏠 Главное меню", event_labels)
 
+
+    def test_event_card_keyboard_uses_compact_cta_layout(self):
+        keyboard = event_actions(42, carpool_enabled=True)
+        rows = [[button.text for button in row] for row in keyboard.inline_keyboard]
+
+        self.assertEqual(rows[0], ["✅ Пойду", "⏳ Резерв"])
+        self.assertEqual(rows[1], ["❌ Отказаться"])
+        self.assertEqual(rows[2], ["🚗 Водитель", "👥 Попутка"])
+        self.assertEqual(rows[-1], ["🗑 Удалить"])
+
+        
     def test_menu_separates_action_and_help_callbacks(self):
         event_menu = menu_section_keyboard("events", is_admin_or_owner=False)
         event_callbacks = {button.text: button.callback_data for row in event_menu.inline_keyboard for button in row}

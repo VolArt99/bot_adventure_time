@@ -3,8 +3,9 @@ from functools import wraps
 
 from aiogram.types import Message, CallbackQuery
 
-from bot.config import ADMIN_IDS, OWNER_ID, RESTRICTED_COMMANDS
+from bot.config import RESTRICTED_COMMANDS
 from bot.utils.callbacks import finalize_callback
+from bot.utils.roles import is_admin_or_owner
 
 EventT = Message | CallbackQuery
 
@@ -32,8 +33,8 @@ def restricted_command(handler: Callable[..., Awaitable]):
             return await handler(event, *args, **kwargs)
 
         command = _extract_command(event)
-        is_admin_or_owner = user.id in ADMIN_IDS or (OWNER_ID > 0 and user.id == OWNER_ID)
-        if command in RESTRICTED_COMMANDS and not is_admin_or_owner:
+        has_extended_access = is_admin_or_owner(user.id)
+        if command in RESTRICTED_COMMANDS and not has_extended_access:
             text = "❌ Эта команда доступна только администраторам."
             if isinstance(event, CallbackQuery):
                 await finalize_callback(event, text, show_alert=True)

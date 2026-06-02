@@ -17,7 +17,7 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 # Для получения ID группы отправьте боту команду /test_chat
 GROUP_ID = int(os.getenv("GROUP_ID")) if os.getenv("GROUP_ID") else 0
 
-# ⚠️ ОБНОВЛЕНО: ADMIN_IDS теперь список организаторов (не только админы)
+# ADMIN_IDS — список организаторов с расширенным доступом
 ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(","))) if os.getenv("ADMIN_IDS") else []
 OWNER_ID = int(os.getenv("OWNER_ID")) if os.getenv("OWNER_ID") else 0
 OWNER_CONTACT = os.getenv("OWNER_CONTACT", "").strip()
@@ -53,7 +53,7 @@ RESTRICTED_COMMANDS = {
     if cmd.strip()
 }
 
-# ⚠️ ОБНОВЛЕНО: Часовой пояс для Санкт-Петербурга
+# Часовой пояс по умолчанию для расписаний и дайджестов
 TIMEZONE = os.getenv("TIMEZONE", "Europe/Moscow")  # Москва = СПб
 
 # Настройки напоминаний (в секундах)

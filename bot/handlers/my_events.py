@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.config import TIMEZONE, GROUP_ID, ADMIN_IDS
+from bot.config import TIMEZONE, GROUP_ID
 from bot.database import (
     get_user_events,
     get_event,
@@ -27,6 +27,7 @@ from bot.keyboards import event_actions, period_keyboard
 from bot.texts import format_event_message
 from bot.utils.helpers import get_user_mention, build_event_message_link, parse_int_arg
 from bot.utils.callbacks import finalize_callback
+from bot.utils.roles import is_admin_or_owner
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 
 router = Router()
@@ -64,7 +65,7 @@ async def _can_manage_event(event_id: int, user_id: int) -> tuple[bool, dict | N
     event = await get_event(event_id)
     if not event:
         return False, None
-    if user_id == event["creator_id"] or user_id in ADMIN_IDS:
+    if user_id == event["creator_id"] or is_admin_or_owner(user_id):
         return True, event
     return False, event
 
@@ -272,7 +273,7 @@ async def cmd_send_event_card(message: Message):
         await message.answer("❌ Мероприятие не найдено.")
         return
     allowed = (
-        message.from_user.id in ADMIN_IDS
+        is_admin_or_owner(message.from_user.id)
         or message.from_user.id == event["creator_id"]
         or message.from_user.id == (event.get("responsible_id") or 0)
     )

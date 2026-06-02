@@ -6,6 +6,7 @@ import base64
 import asyncio
 import logging
 import traceback
+from html import escape
 from datetime import datetime, timezone
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramNetworkError
@@ -75,7 +76,7 @@ async def _notify_owner_about_error(event: Update | None, exc: Exception) -> Non
         return
     _owner_error_throttle[err_key] = now
 
-    update_id = getattr(event, "update_id", "unknown")
+    update_id = escape(str(getattr(event, "update_id", "unknown")))
     user_id = None
     user_command = "unknown"
     if event and event.message and event.message.from_user:
@@ -85,13 +86,16 @@ async def _notify_owner_about_error(event: Update | None, exc: Exception) -> Non
         user_id = event.callback_query.from_user.id
         user_command = (event.callback_query.data or "").strip()[:120] or "unknown"
 
+    safe_user_id = escape(str(user_id or "unknown"))
+    safe_user_command = escape(user_command)
     tb_short = "\n".join(traceback.format_exception_only(type(exc), exc)).strip()
+    safe_tb_short = escape(tb_short[:800])
     text = (
         "🚨 <b>Техническая ошибка бота</b>\n"
         f"• update_id: <code>{update_id}</code>\n"
-        f"• user_id: <code>{user_id or 'unknown'}</code>\n"
-        f"• command: <code>{user_command}</code>\n"
-        f"• error: <code>{tb_short[:800]}</code>\n"
+        f"• user_id: <code>{safe_user_id}</code>\n"
+        f"• command: <code>{safe_user_command}</code>\n"
+        f"• error: <code>{safe_tb_short}</code>\n"
         f"• throttle: {ERROR_THROTTLE_SECONDS}с"
     )
     try:

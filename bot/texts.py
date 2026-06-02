@@ -5,7 +5,7 @@ import pytz
 
 from bot.config import TIMEZONE
 from bot.constants import EVENT_CATEGORY_GROUPS, category_badge
-from bot.utils.design import BRAND, card_cta, card_header, card_progress_bar, card_section
+from bot.utils.design import BRAND, EVENT_CATEGORY_TONES, card_cta, card_header, card_progress_bar, card_section, compact_cta
 from bot.utils.event_links import (
     build_2gis_maps_link,
     build_google_calendar_link,
@@ -107,7 +107,27 @@ def category_to_branded_hashtags(categories_raw: str | None) -> str:
         return "не указана"
     return " ".join(f"{category_badge(category)} {category_to_hashtag(category)}" for category in categories)
 
-    
+
+def category_to_visual_badges(categories_raw: str | None) -> str:
+    """Форматирует категории с цветовым бейджем группы и человекочитаемым названием."""
+    if not categories_raw:
+        return "⚪ 📂 Другое"
+    categories = [item.strip() for item in categories_raw.split(",") if item.strip()]
+    if not categories:
+        return "⚪ 📂 Другое"
+
+    visual_badges: list[str] = []
+    for category in categories:
+        normalized = category.lower()
+        group_key = "other"
+        for key, group in EVENT_CATEGORY_GROUPS.items():
+            if normalized in {str(item).lower() for item in group["subcategories"]}:
+                group_key = key
+                break
+        visual_badges.append(f"{EVENT_CATEGORY_TONES.get(group_key, '⚪')} {category_badge(category)}")
+    return " ".join(visual_badges)
+
+
 def category_to_hashtags(categories_raw: str | None) -> str:
     if not categories_raw:
         return "не указана"
@@ -162,7 +182,7 @@ async def format_event_message(
     location = escape(event.get("location") or "не указано")
     title = escape(event["title"])
     description = escape(event.get("description") or "")
-    category = escape(category_to_branded_hashtags(event.get("category")))
+    category = escape(category_to_visual_badges(event.get("category")))
 
     price_total = event.get("price_total") or 0
     price_per_person = event.get("price_per_person") or 0
@@ -201,9 +221,10 @@ async def format_event_message(
         "\n".join(mentions_dict.get(uid, f"id{uid}") for uid in waitlist_list) or "—"
     )
 
-    status_badges = event_status_badges(event, going_count, len(waitlist_list))
+    hero = f"🗓 {date_str} в {time_str} · 📍 {location}"
     lines = [
         *card_header(BRAND["event"], title, status_badges),
+        f"<b>{hero}</b>",
         f"🆔 ID: <code>{event['id']}</code>",
     ]
 
@@ -232,11 +253,9 @@ async def format_event_message(
         card_section(
             "Детали",
             [
-                f"🗓 Старт: {date_str} в {time_str}",
                 *([period_text] if period_text else []),
                 f"⏱ Длительность: {duration}",
-                f"{category}",
-                f"📍 {location}",
+                f"🏷 Категории: {category}",
                 price_text,
                 f"👥 Кто уже идёт: {going_count}/{limit_str}",
             ],
@@ -286,7 +305,7 @@ async def format_event_message(
                     )
                     lines.append(f"   Пассажиры: {passengers}")
 
-    lines.extend(card_cta("Нажмите кнопку под карточкой, чтобы присоединиться или обновить статус."))
+    lines.extend(card_cta(compact_cta("Выберите CTA под карточкой", "Пойду · Резерв · Отказаться")))
     return "\n".join(lines)
 
 

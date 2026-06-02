@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, Message
 
 from bot.config import GROUP_ID, OWNER_ID
 from bot.keyboards import owner_approval_keyboard
+from .views import build_owner_request_text
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,10 @@ async def notify_owner_about_request(callback: CallbackQuery) -> None:
         return
 
     full_name = " ".join(filter(None, [user.first_name, user.last_name])).strip()
-    username = f"@{user.username}" if user.username else "—"
-    owner_text = (
-        "🆕 Запрос на вступление:\n"
-        f"• ID: {user.id}\n"
-        f"• Имя: {full_name or '—'}\n"
-        f"• Username: {username}"
+    owner_text = build_owner_request_text(
+        user_id=user.id,
+        full_name=full_name,
+        username=user.username,
     )
 
     await callback.bot.send_message(

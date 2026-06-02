@@ -3,7 +3,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from bot.config import GROUP_ID, OWNER_ID, TIMEZONE
+from bot.config import GROUP_ID, TIMEZONE
 from bot.database import get_user_stats, get_top_participants, find_events
 from bot.database import (
     set_random_meeting_opt_in,
@@ -16,6 +16,7 @@ from bot.filters.admin import admin_only
 from bot.keyboards import random_pairs_topics_keyboard
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 from bot.utils.callbacks import finalize_callback
+from bot.utils.roles import is_owner
 from bot.utils.topics import get_topics_list_from_db
 
 import pytz
@@ -155,7 +156,7 @@ async def cb_random_pairs_publish(callback: CallbackQuery):
 
 @router.message(Command("random_optin_count"))
 async def cmd_random_optin_count(message: Message):
-    if message.from_user.id != OWNER_ID:
+    if not is_owner(message.from_user.id):
         await message.answer("❌ Эта команда доступна только владельцу.")
         return
 

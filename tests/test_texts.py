@@ -11,6 +11,7 @@ from bot.texts import (  # noqa: E402
     format_event_period,
     category_to_hashtags,
     category_to_branded_hashtags,
+    category_to_visual_badges,
     format_event_message,
 )
 from bot.utils.event_links import (  # noqa: E402
@@ -41,6 +42,9 @@ class TextFormattersTest(unittest.TestCase):
             category_to_branded_hashtags("настолки, книжный клуб"),
             "🎲 Настолки #настолки 📚 Книги #книжный_клуб",
         )
+
+    def test_category_to_visual_badges_adds_color_tones(self):
+        self.assertEqual(category_to_visual_badges("спорт, книжный клуб"), "🟢 Спорт 🟠 📚 Книги")
 
     def test_event_status_badges(self):
         event = {
@@ -111,6 +115,8 @@ class FeatureHelpersTest(unittest.TestCase):
 
         self.assertIn("⚡ Быстрый взгляд", text)
         self.assertIn("🎟 Места:", text)
+        self.assertIn("🏷 Категории: 🟢 Спорт", text)
+        self.assertIn("Выберите CTA под карточкой", text)
         self.assertIn("Яндекс Карты", text)
         self.assertNotIn("Яндекс Навигатор", text)
         self.assertNotIn("/navi/", text)

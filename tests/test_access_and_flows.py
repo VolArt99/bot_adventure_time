@@ -8,6 +8,8 @@ os.environ.setdefault("BOT_TOKEN", "test-token")
 os.environ.setdefault("OWNER_ID", "12345")
 from bot.middleware.command_access import CommandAccessMiddleware  # noqa: E402
 from bot.utils.helpers import build_owner_contact_html  # noqa: E402
+from bot.utils.roles import is_admin_or_owner, is_owner  # noqa: E402
+from bot.handlers.common_feature.services import notify_owner_about_request  # noqa: E402
 
 common = importlib.import_module("bot.handlers.common_feature.handlers")
 participation = importlib.import_module("bot.handlers.participation")
@@ -55,6 +57,16 @@ class CommandAccessTests(unittest.IsolatedAsyncioTestCase):
 
         handler.assert_not_awaited()
         event.answer.assert_awaited()
+
+
+    def test_role_helpers_cover_owner_and_admin(self):
+        import bot.utils.roles as roles
+
+        with patch.object(roles, "OWNER_ID", 12345), patch.object(roles, "ADMIN_IDS", [777]):
+            self.assertTrue(is_owner(12345))
+            self.assertTrue(is_admin_or_owner(12345))
+            self.assertTrue(is_admin_or_owner(777))
+            self.assertFalse(is_admin_or_owner(555))
 
 
     async def test_new_command_clears_active_split_bill_scenario(self):
@@ -123,14 +135,14 @@ class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(common, "OWNER_CONTACT", "@source_owner"):
             self.assertEqual(
                 common._owner_contact_html(),
-                '<a href="https://t.me/source_owner">владельцу</a>',
+                '<a href="https://t.me/source_owner">@source_owner</a>',
             )
 
     def test_owner_contact_uses_clickable_owner_label_for_link(self):
         with patch.object(common, "OWNER_CONTACT", "https://t.me/source_owner"):
             self.assertEqual(
                 common._owner_contact_html(),
-                '<a href="https://t.me/source_owner">владельцу</a>',
+                '<a href="https://t.me/source_owner">https://t.me/source_owner</a>',
             )
 
 
@@ -162,10 +174,24 @@ class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
         owner_callback.bot.send_message.assert_awaited_once()
         args, kwargs = owner_callback.bot.send_message.await_args
         self.assertEqual(args[0], 42)
-        self.assertIn('<a href="https://t.me/source_owner">владельцу</a>', args[1])
+        self.assertIn('напишите владельцу: <a href="https://t.me/source_owner">@source_owner</a>', args[1])
         self.assertEqual(kwargs["parse_mode"], "HTML")
 
-        
+
+    async def test_owner_request_escapes_user_html(self):
+        callback = _FakeCallback(user_id=42, data="rules_ack")
+        callback.from_user.first_name = "<Alice>"
+        callback.from_user.last_name = "& Bob"
+        callback.from_user.username = "bad<tag>"
+
+        await notify_owner_about_request(callback)
+
+        _, kwargs = callback.bot.send_message.await_args
+        self.assertIn("&lt;Alice&gt; &amp; Bob", kwargs["text"])
+        self.assertIn("@bad&lt;tag&gt;", kwargs["text"])
+        self.assertEqual(kwargs["parse_mode"], "HTML")
+
+
     async def test_reject_flow_for_owner(self):
         owner_callback = _FakeCallback(user_id=common.OWNER_ID, data="reject_user_42")
 
@@ -178,6 +204,34 @@ class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ParticipationTransitionsTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_join_callback_rate_limit_skips_second_db_update(self):
+        participation._participation_callback_hits.clear()
+        callback = _FakeCallback(user_id=11, data="join_100")
+        event = {
+            "id": 100,
+            "status": "active",
+            "participant_limit": 10,
+            "thread_id": 1,
+            "message_id": 2,
+        }
+
+        with (
+            patch("bot.filters.approved_member.is_member_approved", new=AsyncMock(return_value=True)),
+            patch("bot.handlers.participation.get_event", new=AsyncMock(return_value=event)) as get_event,
+            patch("bot.handlers.participation.get_main_participants", new=AsyncMock(return_value=[])),
+            patch("bot.handlers.participation.get_participants", new=AsyncMock(return_value=[])),
+            patch("bot.handlers.participation.add_participant", new=AsyncMock()) as add_participant,
+            patch("bot.handlers.participation.update_event_message", new=AsyncMock()),
+        ):
+            await participation.join_event(callback)
+            await participation.join_event(callback)
+
+        self.assertEqual(get_event.await_count, 1)
+        add_participant.assert_awaited_once_with(100, 11, "going")
+        self.assertIn("Слишком частые", callback.answer.await_args_list[-1].args[0])
+        participation._participation_callback_hits.clear()
+            
     async def test_waitlist_denied_if_already_in_main_list(self):
         callback = _FakeCallback(user_id=11, data="waitlist_100")
 

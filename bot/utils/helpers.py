@@ -35,21 +35,29 @@ def _strip_control_chars(value: str) -> str:
 
 
 def build_owner_contact_html(owner_contact: str | None, owner_id: int, *, label: str = "владельцу") -> str:
-    """Возвращает безопасный HTML-контакт владельца для сообщений Telegram."""
+    """Возвращает безопасный HTML-контакт владельца для сообщений Telegram.
+
+    Если ``OWNER_CONTACT`` задан как ``@username`` или HTTPS-ссылка, показываем сам
+    контакт кликабельным текстом, чтобы в сообщении об одобрении пользователь явно
+    видел, куда писать. При пустом контакте остаётся безопасный fallback на
+    Telegram-mention владельца по ``OWNER_ID``.
+    """
     safe_label = escape(_strip_control_chars(label) or "владельцу")
     contact = _strip_control_chars(owner_contact or "")
 
     if contact.startswith("@"):
         username = contact[1:]
         if _TELEGRAM_USERNAME_RE.fullmatch(username):
-            return f'<a href="https://t.me/{quote(username)}">{safe_label}</a>'
+            safe_contact = escape(contact)
+            return f'<a href="https://t.me/{quote(username)}">{safe_contact}</a>'
         return escape(contact)
 
     if contact.startswith("https://"):
         parsed = urlparse(contact)
         if parsed.scheme == "https" and parsed.netloc:
             safe_url = escape(contact, quote=True)
-            return f'<a href="{safe_url}">{safe_label}</a>'
+            safe_text = escape(contact)
+            return f'<a href="{safe_url}">{safe_text}</a>'
         return escape(contact)
 
     if contact:

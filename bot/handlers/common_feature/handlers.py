@@ -12,10 +12,10 @@ from aiogram.types import CallbackQuery, Message
 from bot.utils.callbacks import finalize_callback
 from bot.utils.helpers import build_owner_contact_html
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
+from bot.utils.roles import is_admin_or_owner as has_admin_or_owner, is_owner
 
 from bot.config import (
     ADMIN_DAILY_COMMAND_LIMIT,
-    ADMIN_IDS,
     GROUP_ID,
     MEMBER_DAILY_COMMAND_LIMIT,
     OUTSIDER_START_DAILY_LIMIT,
@@ -47,10 +47,25 @@ from bot.keyboards import (
     quick_event_templates_keyboard,
     rules_ack_keyboard,
 )
-from bot.texts import APPROVED_MEMBER_START_TEXT, GROUP_RULES_TEXT, ONBOARDING_WELCOME_TEXT
 
 from .services import extract_command, is_user_in_group, notify_owner_about_request
-from .views import build_command_action_text, build_help_text, build_main_menu_text, build_menu_section_text
+from .views import (
+    build_approval_message,
+    build_approved_member_start_text,
+    build_command_action_text,
+    build_group_rules_text,
+    build_help_text,
+    build_main_menu_text,
+    build_menu_section_text,
+    build_not_enough_rights_text,
+    build_onboarding_guard_text,
+    build_onboarding_welcome_text,
+    build_owner_only_text,
+    build_pending_request_text,
+    build_rejection_message,
+    build_rules_accepted_existing_member_text,
+    build_rules_accepted_pending_text,
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -70,17 +85,17 @@ async def cmd_start(message: Message):
     if await is_user_in_group(message, user_id=user_id):
         await upsert_approved_member(user_id, username, full_name, intro_status="completed")
         await message.answer(
-            APPROVED_MEMBER_START_TEXT,
+            build_approved_member_start_text(),
             reply_markup=start_menu_keyboard(),
         )
         return
 
-    await message.answer(ONBOARDING_WELCOME_TEXT, reply_markup=onboarding_start_keyboard())
+    await message.answer(build_onboarding_welcome_text(), reply_markup=onboarding_start_keyboard())
 
 
 @router.callback_query(F.data == "onboarding_start")
 async def onboarding_start(callback: CallbackQuery):
-    await callback.message.answer(GROUP_RULES_TEXT, reply_markup=rules_ack_keyboard())
+    await callback.message.answer(build_group_rules_text(), reply_markup=rules_ack_keyboard())
     await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
@@ -90,11 +105,11 @@ async def rules_ack(callback: CallbackQuery):
     full_name = " ".join(filter(None, [user.first_name, user.last_name])).strip()
     if await is_user_in_group(callback.message, user_id=user.id):
         await upsert_approved_member(user.id, user.username, full_name, intro_status="completed")
-        await callback.message.answer("✅ Правила приняты. Вы уже участник группы, доступ открыт.")
+        await callback.message.answer(build_rules_accepted_existing_member_text())
     else:
         await add_pending_user(user.id, user.username, full_name)
         await notify_owner_about_request(callback)
-        await callback.message.answer("✅ Правила приняты. Заявка отправлена владельцу на проверку.")
+        await callback.message.answer(build_rules_accepted_pending_text())
     await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
@@ -110,20 +125,19 @@ async def onboarding_guard(message: Message):
 
     pending = await get_pending_user(message.from_user.id)
     if pending:
-        await message.answer("⏳ Ваша заявка уже ожидает решения владельца.")
+        await message.answer(build_pending_request_text())
         return
 
     await message.answer(
-        "Чтобы продолжить, нажмите «Старт», затем «Правила изучил(а) ❤️».\n"
-        "Любые другие сообщения до этого шага недоступны.",
+        build_onboarding_guard_text(),
         reply_markup=onboarding_start_keyboard(),
     )
 
 
 @router.callback_query(F.data.startswith("approve_user_"))
 async def owner_approve_user(callback: CallbackQuery):
-    if callback.from_user.id != OWNER_ID:
-        await finalize_callback(callback, "Недостаточно прав", show_alert=True)
+    if not is_owner(callback.from_user.id):
+        await finalize_callback(callback, build_not_enough_rights_text(), show_alert=True)
         return
 
     user_id = int(callback.data.rsplit("_", 1)[-1])
@@ -136,9 +150,10 @@ async def owner_approve_user(callback: CallbackQuery):
         invite = await callback.bot.create_chat_invite_link(chat_id=GROUP_ID, member_limit=1)
         await callback.bot.send_message(
             user_id,
-            "✅ Ваша заявка одобрена. Ссылка для входа в группу:\n"
-            f"{invite.invite_link}\n\n"
-            f"Если возникнут вопросы — напишите {_owner_contact_html()}.",
+            build_approval_message(
+                invite_link=invite.invite_link,
+                owner_contact_html=_owner_contact_html(),
+            ),
             parse_mode="HTML",
         )
     except (TelegramForbiddenError, TelegramBadRequest) as exc:
@@ -156,14 +171,14 @@ async def owner_approve_user(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("reject_user_"))
 async def owner_reject_user(callback: CallbackQuery):
-    if callback.from_user.id != OWNER_ID:
-        await finalize_callback(callback, "Недостаточно прав", show_alert=True)
+    if not is_owner(callback.from_user.id):
+        await finalize_callback(callback, build_not_enough_rights_text(), show_alert=True)
         return
 
     user_id = int(callback.data.rsplit("_", 1)[-1])
     await delete_pending_user(user_id)
     try:
-        await callback.bot.send_message(user_id, "❌ К сожалению, заявка на вступление отклонена.")
+        await callback.bot.send_message(user_id, build_rejection_message())
     except (TelegramForbiddenError, TelegramBadRequest) as exc:
         logger.info(
             "reject_notify_skipped user_id=%s command=%s event_id=%s error=%s",
@@ -179,8 +194,8 @@ async def owner_reject_user(callback: CallbackQuery):
 
 @router.message(Command("pending_intro"))
 async def cmd_pending_intro(message: Message):
-    if message.from_user.id != OWNER_ID:
-        await message.answer("❌ Эта команда доступна только владельцу.")
+    if not is_owner(message.from_user.id):
+        await message.answer(build_owner_only_text())
         return
 
     async def _filter_actual_members(members_list: list[dict]) -> list[dict]:
@@ -239,8 +254,8 @@ async def cmd_pending_intro(message: Message):
 
 @router.callback_query(F.data.startswith("intro_done_"))
 async def intro_done(callback: CallbackQuery):
-    if callback.from_user.id != OWNER_ID:
-        await finalize_callback(callback, "Недостаточно прав", show_alert=True)
+    if not is_owner(callback.from_user.id):
+        await finalize_callback(callback, build_not_enough_rights_text(), show_alert=True)
         return
 
     user_id = int(callback.data.rsplit("_", 1)[-1])
@@ -251,8 +266,8 @@ async def intro_done(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("intro_toggle_"))
 async def intro_toggle(callback: CallbackQuery):
-    if callback.from_user.id != OWNER_ID:
-        await finalize_callback(callback, "Недостаточно прав", show_alert=True)
+    if not is_owner(callback.from_user.id):
+        await finalize_callback(callback, build_not_enough_rights_text(), show_alert=True)
         return
 
     user_id = int(callback.data.rsplit("_", 1)[-1])
@@ -268,7 +283,7 @@ async def intro_toggle(callback: CallbackQuery):
 
 @router.message(Command("menu"))
 async def cmd_menu(message: Message):
-    is_admin_or_owner = message.from_user.id in ADMIN_IDS or message.from_user.id == OWNER_ID
+    is_admin_or_owner = has_admin_or_owner(message.from_user.id)
     await message.answer(
         build_main_menu_text(is_admin_or_owner=is_admin_or_owner),
         parse_mode="HTML",
@@ -278,7 +293,7 @@ async def cmd_menu(message: Message):
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
-    is_admin_or_owner = message.from_user.id in ADMIN_IDS or message.from_user.id == OWNER_ID
+    is_admin_or_owner = has_admin_or_owner(message.from_user.id)
     await message.answer(
         build_help_text(is_admin_or_owner=is_admin_or_owner),
         parse_mode="HTML",
@@ -289,7 +304,7 @@ async def cmd_help(message: Message):
 async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
     action = callback.data.removeprefix("menu_action_")
     user_id = callback.from_user.id
-    is_admin_or_owner = user_id in ADMIN_IDS or user_id == OWNER_ID
+    is_admin_or_owner = has_admin_or_owner(user_id)
 
     if action == "create_event":
         from bot.handlers.event_scenarios.create import start_create_event_wizard
@@ -472,7 +487,7 @@ async def menu_command_callback(callback: CallbackQuery):
     if not text:
         await finalize_callback(callback, "Команда недоступна", show_alert=True)
         return
-    is_admin_or_owner = callback.from_user.id in ADMIN_IDS or callback.from_user.id == OWNER_ID
+    is_admin_or_owner = has_admin_or_owner(callback.from_user.id)
     await _replace_callback_message(
         callback,
         text,
@@ -484,7 +499,7 @@ async def menu_command_callback(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("menu_"))
 async def menu_callback(callback: CallbackQuery):
     section = callback.data.removeprefix("menu_")
-    is_admin_or_owner = callback.from_user.id in ADMIN_IDS or callback.from_user.id == OWNER_ID
+    is_admin_or_owner = has_admin_or_owner(callback.from_user.id)
     if section == "home":
         await _replace_callback_message(
             callback,

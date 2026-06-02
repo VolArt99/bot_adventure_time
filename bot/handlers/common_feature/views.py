@@ -1,6 +1,75 @@
 from __future__ import annotations
 
-from bot.utils.design import BRAND, card_cta, card_header, card_section
+from html import escape
+
+from bot.texts import APPROVED_MEMBER_START_TEXT, GROUP_RULES_TEXT, ONBOARDING_WELCOME_TEXT
+from bot.utils.design import BRAND, CARD_DIVIDER, card_cta, card_header, card_section, step_badge
+
+
+def build_onboarding_welcome_text() -> str:
+    """Приветственный текст первого шага onboarding."""
+    return f"{step_badge(1, 3, 'Старт')}\n{CARD_DIVIDER}\n" + ONBOARDING_WELCOME_TEXT
+
+
+def build_approved_member_start_text() -> str:
+    """Текст /start для уже подтверждённого участника."""
+    return APPROVED_MEMBER_START_TEXT
+
+
+def build_group_rules_text() -> str:
+    """Текст правил для onboarding-сценария."""
+    return f"{step_badge(2, 3, 'Правила')}\n{CARD_DIVIDER}\n" + GROUP_RULES_TEXT
+
+
+def build_rules_accepted_existing_member_text() -> str:
+    return "✅ Правила приняты. Вы уже участник группы, доступ открыт."
+
+
+def build_rules_accepted_pending_text() -> str:
+    return f"{step_badge(3, 3, 'Заявка')}\n✅ Правила приняты. Заявка отправлена владельцу на проверку."
+
+
+def build_pending_request_text() -> str:
+    return "⏳ Ваша заявка уже ожидает решения владельца."
+
+
+def build_onboarding_guard_text() -> str:
+    return (
+        "Чтобы продолжить, нажмите «Старт», затем «Правила изучил(а) ❤️».\n"
+        "Любые другие сообщения до этого шага недоступны."
+    )
+
+
+def build_owner_request_text(*, user_id: int, full_name: str, username: str | None) -> str:
+    username_text = f"@{username}" if username else "—"
+    return (
+        "🆕 Запрос на вступление:\n"
+        f"• ID: {int(user_id)}\n"
+        f"• Имя: {escape(full_name or '—')}\n"
+        f"• Username: {escape(username_text)}"
+    )
+
+
+def build_approval_message(*, invite_link: str, owner_contact_html: str) -> str:
+    return (
+        f"{step_badge(3, 3, 'Вход в группу')}\n"
+        f"{CARD_DIVIDER}\n"
+        "✅ Ваша заявка одобрена. Ссылка для входа в группу:\n"
+        f"{escape(invite_link)}\n\n"
+        f"Если возникнут вопросы — напишите владельцу: {owner_contact_html}."
+    )
+
+
+def build_rejection_message() -> str:
+    return "❌ К сожалению, заявка на вступление отклонена."
+
+
+def build_owner_only_text() -> str:
+    return "❌ Эта команда доступна только владельцу."
+
+
+def build_not_enough_rights_text() -> str:
+    return "Недостаточно прав"
 
 
 MENU_BUTTON_DESCRIPTIONS = {
@@ -81,9 +150,9 @@ SECTION_TONES = {
 }
 
 INLINE_BUTTON_HELP = [
-    "✅ Пойду / ❌ Отказаться / ⏳ В резерв — обновляют статус участия в карточке мероприятия.",
-    "🚗 Еду на машине / 👥 Ищу попутку — включают карпулинг для события, если он разрешён.",
-    "🗑 Удалить мероприятие — удаляет событие у создателя/админа после проверки прав.",
+    "✅ Пойду / ⏳ Резерв / ❌ Отказаться — обновляют статус участия в карточке мероприятия.",
+    "🚗 Водитель / 👥 Попутка — включают карпулинг для события, если он разрешён.",
+    "🗑 Удалить — удаляет событие у создателя/админа после проверки прав.",
     "↩️ Назад / ❌ Отмена / ⏭ Пропустить — навигация в мастерах без ручного ввода команд.",
     "🚀 Опубликовать — финальная публикация события после превью.",
     "📌 В основной чат / 📁 Тема — выбор места публикации в группе или forum topic.",

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, Message
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -9,13 +10,14 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from bot.keyboards import event_actions
 from bot.texts import format_event_message
 from bot.utils.helpers import get_username_by_id, get_user_mentions
-from bot.config import GROUP_ID, ADMIN_IDS
+from bot.config import GROUP_ID
 
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.utils.callbacks import finalize_callback
+from bot.utils.roles import is_admin_or_owner
 from bot.filters.approved_member import approved_member_callback_only
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 
@@ -40,6 +42,51 @@ class CarpoolState(StatesGroup):
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+PARTICIPATION_CALLBACK_RATE_LIMIT_SECONDS = 1.5
+PARTICIPATION_CALLBACK_RATE_LIMIT_CACHE_TTL_SECONDS = 60.0
+_participation_callback_hits: dict[tuple[int, int, str], float] = {}
+
+
+def _is_participation_callback_rate_limited(
+    user_id: int,
+    event_id: int,
+    action: str,
+    *,
+    now: float | None = None,
+) -> bool:
+    """Ограничивает частые клики по участию/резерву для одного события."""
+    current_time = time.monotonic() if now is None else now
+    if len(_participation_callback_hits) > 1000:
+        stale_before = current_time - PARTICIPATION_CALLBACK_RATE_LIMIT_CACHE_TTL_SECONDS
+        stale_keys = [
+            cached_key
+            for cached_key, cached_time in _participation_callback_hits.items()
+            if cached_time < stale_before
+        ]
+        for stale_key in stale_keys:
+            _participation_callback_hits.pop(stale_key, None)
+
+    key = (int(user_id), int(event_id), action)
+    previous_time = _participation_callback_hits.get(key)
+    _participation_callback_hits[key] = current_time
+    return bool(
+        previous_time is not None
+        and current_time - previous_time < PARTICIPATION_CALLBACK_RATE_LIMIT_SECONDS
+    )
+
+
+async def _answer_if_participation_rate_limited(
+    callback: CallbackQuery,
+    *,
+    event_id: int,
+    action: str,
+) -> bool:
+    if not _is_participation_callback_rate_limited(callback.from_user.id, event_id, action):
+        return False
+    await callback.answer("⏱ Слишком частые нажатия. Подождите секунду.")
+    return True
 
 
 async def build_event_text(event_id: int, bot: Bot) -> str:
@@ -123,6 +170,8 @@ async def update_event_message(
 async def join_event(callback: CallbackQuery):
     event_id = int(callback.data.split("_")[1])
     user_id = callback.from_user.id
+    if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="join"):
+        return
     event = await get_event(event_id)
     if not event or event["status"] != "active":
         await finalize_callback(callback, "Мероприятие уже завершено или отменено", show_alert=True)
@@ -152,6 +201,8 @@ async def join_event(callback: CallbackQuery):
 async def waitlist_event(callback: CallbackQuery):
     event_id = int(callback.data.split("_")[1])
     user_id = callback.from_user.id
+    if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="waitlist"):
+        return
     event = await get_event(event_id)
     if not event or event["status"] != "active":
         await finalize_callback(callback, "Мероприятие уже завершено или отменено", show_alert=True)
@@ -176,6 +227,8 @@ async def waitlist_event(callback: CallbackQuery):
 async def become_driver(callback: CallbackQuery, state: FSMContext):
     event_id = int(callback.data.split("_")[1])
     user_id = callback.from_user.id
+    if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="decline"):
+        return
     event = await get_event(event_id)
     if not event or event["status"] != "active":
         await finalize_callback(callback, "Мероприятие уже завершено или отменено", show_alert=True)
@@ -357,7 +410,7 @@ async def delete_event(callback: CallbackQuery):
 
     user_id = callback.from_user.id
     is_creator = user_id == event["creator_id"]
-    is_admin = user_id in ADMIN_IDS
+    is_admin = is_admin_or_owner(user_id)
     if not is_creator and not is_admin:
         await finalize_callback(callback, "Удалять мероприятие может только организатор или администратор.", show_alert=True)
         return

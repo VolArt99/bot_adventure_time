@@ -8,16 +8,15 @@ from aiogram.types import Message, TelegramObject
 
 from bot.config import (
     ADMIN_DAILY_COMMAND_LIMIT,
-    ADMIN_IDS,
     GROUP_ID,
     MEMBER_ALLOWED_COMMANDS,
     MEMBER_DAILY_COMMAND_LIMIT,
     OUTSIDER_ALLOWED_COMMANDS,
     OUTSIDER_START_DAILY_LIMIT,
-    OWNER_ID,
 )
 from bot.database import delete_approved_member, is_member_approved, upsert_approved_member
 from bot.database import record_command_usage
+from bot.utils.roles import is_admin, is_owner
 
 logger = logging.getLogger(__name__)
 
@@ -87,17 +86,17 @@ class CommandAccessMiddleware(BaseMiddleware):
 
 
         user_id = user.id
-        is_owner = OWNER_ID > 0 and user_id == OWNER_ID
-        is_admin = user_id in ADMIN_IDS
+        user_is_owner = is_owner(user_id)
+        user_is_admin = is_admin(user_id)
         is_approved_member = await self._sync_membership(event, user_id)
 
         # Владелец: полный доступ без лимита.
-        if is_owner:
+        if user_is_owner:
             await record_command_usage("owner", command)
             return await handler(event, data)
 
         # Админ: полный доступ, но с дневным лимитом.
-        if is_admin:
+        if user_is_admin:
             return await self._apply_limit(
                 handler,
                 event,
