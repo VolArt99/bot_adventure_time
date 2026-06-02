@@ -44,7 +44,7 @@ def choose_topic_keyboard(topics: list[dict], back_callback: str | None = None) 
     for topic in topics:
         topic_id = topic.get("message_thread_id") or topic.get("id")
         topic_name = topic.get("name", f"Тема {topic_id}")
-        builder.button(text=f"📁 {topic_name}", callback_data=f"topic_{topic_id}")
+        builder.button(text=f"{topic_name}", callback_data=f"topic_{topic_id}")
 
     if back_callback:
         builder.button(text="↩️ Назад", callback_data=back_callback)

@@ -90,12 +90,12 @@ def category_to_hashtag(category: str | None) -> str:
 def category_emoji(category: str | None) -> str:
     """Возвращает emoji группы для категории."""
     if not category:
-        return "📂"
+        return "🗂️"
     normalized = category.strip().lower()
     for group in EVENT_CATEGORY_GROUPS.values():
         if normalized in {str(item).lower() for item in group["subcategories"]}:
             return str(group["title"]).split()[0]
-    return "📂"
+    return "🗂️"
 
 
 def category_to_branded_hashtags(categories_raw: str | None) -> str:
@@ -111,10 +111,10 @@ def category_to_branded_hashtags(categories_raw: str | None) -> str:
 def category_to_visual_badges(categories_raw: str | None) -> str:
     """Форматирует категории с цветовым бейджем группы и человекочитаемым названием."""
     if not categories_raw:
-        return "⚪ 📂 Другое"
+        return "⚪ 🗂️ Другое"
     categories = [item.strip() for item in categories_raw.split(",") if item.strip()]
     if not categories:
-        return "⚪ 📂 Другое"
+        return "⚪ 🗂️ Другое"
 
     visual_badges: list[str] = []
     for category in categories:
@@ -208,7 +208,7 @@ async def format_event_message(
         price_summary = "бесплатно"
 
     weather = (
-        f"🌤 Погода: {escape(event['weather_info'])}"
+        f"⛅ Погода: {escape(event['weather_info'])}"
         if event.get("weather_info")
         else ""
     )
@@ -221,7 +221,7 @@ async def format_event_message(
         "\n".join(mentions_dict.get(uid, f"id{uid}") for uid in waitlist_list) or "—"
     )
 
-    hero = f"🗓 {date_str} в {time_str} · 📍 {location}"
+    hero = f"📅 {date_str} в {time_str} · 📍 {location}"
     lines = [
         *card_header(BRAND["event"], title, status_badges),
         f"<b>{hero}</b>",
@@ -254,8 +254,8 @@ async def format_event_message(
             "Детали",
             [
                 *([period_text] if period_text else []),
-                f"⏱ Длительность: {duration}",
-                f"🏷 Категории: {category}",
+                f"⏱️ Длительность: {duration}",
+                f"🏷️ Категории: {category}",
                 price_text,
                 f"👥 Кто уже идёт: {going_count}/{limit_str}",
             ],
@@ -343,8 +343,8 @@ def format_digest_text(
         )        
         lines.append(
             f"<b>{status_badges} · {title}</b>\n"
-            f"🗺 Где: {location}\n"
-            f"🗓 Когда: {date_str}\n"
+            f"🌍 Где: {location}\n"
+            f"📅 Когда: {date_str}\n"
             f"🚀 Тема: {topic_name}\n"
             f"👤 Организатор: {org_name}\n"
             f"🔗 Ссылка: {link_text}\n"
@@ -362,7 +362,7 @@ def format_reminder_text(event: Dict, minutes_until: int) -> str:
     return (
         f"🔔 <b>Напоминание о мероприятии</b>\n\n"
         f"📌 {title}\n"
-        f"🗓 {date_str}\n"
+        f"📅 {date_str}\n"
         f"📍 {location}\n"
         f"⏰ Начинается через {minutes_until} мин"
     )
