@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from html import escape
 
@@ -27,6 +28,7 @@ from bot.keyboards import event_actions, period_keyboard
 from bot.texts import format_event_message
 from bot.utils.helpers import get_user_mention, build_event_message_link, parse_int_arg
 from bot.utils.callbacks import finalize_callback
+from bot.utils.telegram_errors import ack_callback
 from bot.utils.roles import is_admin_or_owner
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 
@@ -81,6 +83,7 @@ async def cmd_my_events(message: Message):
 
 @router.callback_query(F.data.startswith("my_events_period_"))
 async def my_events_with_period(callback: CallbackQuery):
+    await ack_callback(callback)
     period = callback.data.removeprefix("my_events_period_")
     user_id = callback.from_user.id
     events = await get_user_events(user_id, status="active")
@@ -101,7 +104,11 @@ async def my_events_with_period(callback: CallbackQuery):
 
     if not filtered:
         await callback.message.answer("📭 На выбранный период у вас нет активных мероприятий.")
-        await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+        await finalize_callback(
+            callback,
+            delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+            skip_answer=True,
+        )
         return
 
     title_map = {
@@ -109,11 +116,13 @@ async def my_events_with_period(callback: CallbackQuery):
         "month": "за месяц",
         "all": "за всё время",
     }
+    topic_names = await asyncio.gather(
+        *(get_topic_name_by_thread_id(event.get("thread_id")) for event in filtered)
+    )
     text_lines = [f"<b>📅 Ваши активные мероприятия {title_map.get(period, '')}:</b>"]
-    for event in filtered:
+    for event, topic_name in zip(filtered, topic_names):
         dt = datetime.fromisoformat(event["date_time"]).astimezone(TZ)
         date_str = dt.strftime("%d.%m.%Y %H:%M")
-        topic_name = await get_topic_name_by_thread_id(event.get("thread_id"))
         topic_title = topic_name or "Основной чат"
         event_link = build_event_message_link(GROUP_ID, event.get("message_id"))
         link_text = (
@@ -132,23 +141,33 @@ async def my_events_with_period(callback: CallbackQuery):
         )
 
     await callback.message.answer("\n".join(text_lines), parse_mode="HTML")
-    await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+    await finalize_callback(
+        callback,
+        delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+        skip_answer=True,
+    )
 
 
 @router.callback_query(F.data.startswith("myevent_"))
 async def show_my_event(callback: CallbackQuery):
+    await ack_callback(callback)
     event_id = int(callback.data.split("_")[1])
     event = await get_event(event_id)
     if not event:
         await finalize_callback(callback, "Мероприятие не найдено", show_alert=True)
         return
 
-    going = await get_main_participants(event_id)
-    waitlist = await get_participants(event_id, "waitlist")
+    going, waitlist = await asyncio.gather(
+        get_main_participants(event_id),
+        get_participants(event_id, "waitlist"),
+    )
 
     responsible_id = event.get("responsible_id") or event["creator_id"]
-    all_users = set(going + waitlist + [event["creator_id"], responsible_id])
-    mentions = {uid: await get_user_mention(uid, callback.bot) for uid in all_users}
+    all_users = sorted(set(going + waitlist + [event["creator_id"], responsible_id]))
+    mention_values = await asyncio.gather(
+        *(get_user_mention(uid, callback.bot) for uid in all_users)
+    )
+    mentions = dict(zip(all_users, mention_values))
     organizer_mention = mentions.get(event["creator_id"])
     responsible_mention = mentions.get(responsible_id)
 
@@ -165,7 +184,11 @@ async def show_my_event(callback: CallbackQuery):
         reply_markup=event_actions(event_id, event["carpool_enabled"]),
         parse_mode="HTML",
     )
-    await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+    await finalize_callback(
+        callback,
+        delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+        skip_answer=True,
+    )
 
 
 @router.message(Command("set_responsible"))

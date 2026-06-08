@@ -81,8 +81,8 @@ workflows:
               YC_FUNCTION_NAME: ${{ cubes.format-name.outputs.function_name }}              
               YC_FUNCTION_RUNTIME: python312
               YC_FUNCTION_ENTRYPOINT: dynamic_handler.handler
-              YC_FUNCTION_MEMORY: 256m
-              YC_FUNCTION_EXECUTION_TIMEOUT: 30s 
+              YC_FUNCTION_MEMORY: 512m
+              YC_FUNCTION_EXECUTION_TIMEOUT: 60s 
               YC_FUNCTION_SERVICE_ACCOUNT_ID: ${{ tokens.SERVICE_CONNECTION_WITH_TOKEN.service_account_id }}             
               SOURCE_PATH: "."
               BOT_TOKEN: ${{ inputs.bot-token }}

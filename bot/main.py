@@ -9,7 +9,7 @@ import traceback
 from html import escape
 from datetime import datetime, timezone
 from aiogram import Bot, Dispatcher
-from aiogram.exceptions import TelegramNetworkError
+from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError
 from aiogram.fsm.strategy import FSMStrategy
 
 from bot.config import BOT_TOKEN, validate_runtime_config
@@ -27,6 +27,7 @@ from bot.utils.scheduler import restore_jobs, start_scheduler
 from bot.fsm_storage_ydb import YdbStorage
 from bot.init_flags import should_run_schema_init, should_run_schema_init_webhook
 from bot.utils.helpers import build_owner_contact_html
+from bot.utils.telegram_errors import is_benign_telegram_error
 
 from aiogram.types import BotCommand, BotCommandScopeDefault, Update
 from bot.commands import COMMAND_SPECS
@@ -123,6 +124,8 @@ async def _notify_user_about_error(event: Update | None) -> None:
     )
     try:
         await bot.send_message(user_id, text, parse_mode="HTML", disable_web_page_preview=True)
+    except TelegramForbiddenError:
+        logger.info("Не удалось уведомить пользователя об ошибке: user_id=%s заблокировал бота", user_id)
     except Exception:
         logger.exception("Не удалось уведомить пользователя об ошибке")
 
@@ -152,6 +155,12 @@ def _register_handlers() -> None:
     @dp.errors()
     async def on_global_error(event, exception=None):
         err = exception or getattr(event, "exception", None)
+        if err and is_benign_telegram_error(err):
+            logger.info(
+                "Benign Telegram error while processing update: %s",
+                err,
+            )
+            return True
         logger.exception("Unhandled error while processing update", exc_info=err)
         update_obj = getattr(event, "update", None) if event else None
         await _notify_owner_about_error(update_obj, err or Exception("unknown error"))
@@ -179,8 +188,7 @@ async def ensure_initialized(*, for_polling: bool = False) -> None:
                 logger.info("Схема БД проверена/инициализирована")
             else:
                 logger.info("AUTO_INIT_DB disabled: пропускаем init_db() в этом окружении")
-            await sync_topics_from_config()
-            await setup_bot_commands()
+            await asyncio.gather(sync_topics_from_config(), setup_bot_commands())
             _register_handlers()
             logger.info("База, темы и роутеры инициализированы")
             _is_initialized = True

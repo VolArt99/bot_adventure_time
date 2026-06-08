@@ -82,15 +82,18 @@ async def cmd_start(message: Message):
     username = message.from_user.username
     full_name = " ".join(filter(None, [message.from_user.first_name, message.from_user.last_name])).strip()
     await get_or_create_user(user_id, username)
-    if await is_user_in_group(message, user_id=user_id):
-        await upsert_approved_member(user_id, username, full_name, intro_status="completed")
-        await message.answer(
-            build_approved_member_start_text(),
-            reply_markup=start_menu_keyboard(),
-        )
-        return
+    try:
+        if await is_user_in_group(message, user_id=user_id):
+            await upsert_approved_member(user_id, username, full_name, intro_status="completed")
+            await message.answer(
+                build_approved_member_start_text(),
+                reply_markup=start_menu_keyboard(),
+            )
+            return
 
-    await message.answer(build_onboarding_welcome_text(), reply_markup=onboarding_start_keyboard())
+        await message.answer(build_onboarding_welcome_text(), reply_markup=onboarding_start_keyboard())
+    except TelegramForbiddenError:
+        logger.info("cmd_start skipped: user_id=%s blocked the bot", user_id)
 
 
 @router.callback_query(F.data == "onboarding_start")

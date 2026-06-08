@@ -1,3 +1,5 @@
+import asyncio
+
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
@@ -15,6 +17,7 @@ from bot.keyboards import period_keyboard
 from bot.texts import format_digest_text
 from bot.utils.helpers import build_event_message_link, get_username_by_id
 from bot.utils.callbacks import finalize_callback
+from bot.utils.telegram_errors import ack_callback
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 
 router = Router(name=__name__)
@@ -175,21 +178,36 @@ async def cmd_my_digest(message: Message):
 
 @router.callback_query(F.data.startswith("my_digest_"))
 async def my_digest_with_period(callback: CallbackQuery):
+    await ack_callback(callback)
     period = callback.data.removeprefix("my_digest_")
     events = await get_events_for_user_subscriptions(callback.from_user.id, period=period)
 
     if not events:
         await callback.message.answer("По вашим подпискам пока нет мероприятий на выбранный период.")
-        await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+        await finalize_callback(
+            callback,
+            delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+            skip_answer=True,
+        )
         return
 
-    usernames = {}
-    for event in events:
-        usernames[event["creator_id"]] = await get_username_by_id(event["creator_id"], callback.bot)
-        topic_name = await get_topic_name_by_thread_id(event.get("thread_id"))
+    creator_ids = sorted({event["creator_id"] for event in events})
+    resolved_names, topic_names = await asyncio.gather(
+        asyncio.gather(*(get_username_by_id(cid, callback.bot) for cid in creator_ids)),
+        asyncio.gather(*(get_topic_name_by_thread_id(event.get("thread_id")) for event in events)),
+    )
+    usernames = {
+        cid: (name or str(cid))
+        for cid, name in zip(creator_ids, resolved_names)
+    }
+    for event, topic_name in zip(events, topic_names):
         event["topic_name"] = topic_name or "Основной чат"
         event["event_link"] = build_event_message_link(GROUP_ID, event.get("message_id"))
 
     text = format_digest_text(events, usernames, period=period)
     await callback.message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
-    await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+    await finalize_callback(
+        callback,
+        delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+        skip_answer=True,
+    )

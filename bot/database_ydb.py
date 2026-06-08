@@ -2031,16 +2031,20 @@ async def get_topic_name_by_thread_id(message_thread_id: int | None) -> Optional
 
 
 async def sync_topics_from_config() -> int:
+    import asyncio
+
     try:
         from bot.topics_config import TOPICS_MAPPING
     except Exception:
         return 0
 
-    synced = 0
-    for thread_id, name in TOPICS_MAPPING.items():
-        await save_forum_topic(int(thread_id), str(name))
-        synced += 1
-    return synced
+    if not TOPICS_MAPPING:
+        return 0
+
+    await asyncio.gather(
+        *(save_forum_topic(int(thread_id), str(name)) for thread_id, name in TOPICS_MAPPING.items())
+    )
+    return len(TOPICS_MAPPING)
 
 
 async def set_random_meeting_opt_in(user_id: int, is_enabled: bool) -> None:

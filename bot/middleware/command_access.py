@@ -205,7 +205,14 @@ class CommandAccessMiddleware(BaseMiddleware):
         current_usage = self._daily_usage[usage_key]
 
         if current_usage >= daily_limit:
-            await event.answer(limit_text)
+            try:
+                await event.answer(limit_text)
+            except TelegramForbiddenError:
+                logger.info(
+                    "limit_reply_skipped user_id=%s command=%s reason=blocked",
+                    event.from_user.id,
+                    command,
+                )
             return
 
         self._daily_usage[usage_key] = current_usage + 1

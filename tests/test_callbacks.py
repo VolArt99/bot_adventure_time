@@ -73,6 +73,13 @@ class FinalizeCallbackTests(unittest.IsolatedAsyncioTestCase):
 
         callback.answer.assert_awaited_once_with(text="alert", show_alert=True)
 
+    async def test_skip_answer_does_not_call_answer(self):
+        callback = SimpleNamespace(answer=AsyncMock(), message=None)
+
+        await finalize_callback(callback, "ignored", skip_answer=True)
+
+        callback.answer.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()

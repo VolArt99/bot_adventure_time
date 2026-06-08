@@ -17,6 +17,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.utils.callbacks import finalize_callback
+from bot.utils.telegram_errors import safe_callback_answer
 from bot.utils.roles import is_admin_or_owner
 from bot.filters.approved_member import approved_member_callback_only
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
@@ -85,7 +86,7 @@ async def _answer_if_participation_rate_limited(
 ) -> bool:
     if not _is_participation_callback_rate_limited(callback.from_user.id, event_id, action):
         return False
-    await callback.answer("⏱ Слишком частые нажатия. Подождите секунду.")
+    await safe_callback_answer(callback, "⏱ Слишком частые нажатия. Подождите секунду.")
     return True
 
 
@@ -176,24 +177,24 @@ async def join_event(callback: CallbackQuery):
     if not event or event["status"] != "active":
         await finalize_callback(callback, "Мероприятие уже завершено или отменено", show_alert=True)
         return
-    # Проверяем лимит
-    going = await get_main_participants(event_id)
+    going, waitlist = await asyncio.gather(
+        get_main_participants(event_id),
+        get_participants(event_id, "waitlist"),
+    )
     if event["participant_limit"] and len(going) >= event["participant_limit"]:
         await finalize_callback(callback, "Мест нет. Вы можете записаться в резерв", show_alert=True)
         return
-    # Проверяем, не состоит ли уже в резерве
-    if user_id in await get_participants(event_id, "waitlist"):
+    if user_id in waitlist:
         await finalize_callback(callback, "Вы уже в резерве. Откажитесь от резерва, чтобы записаться", show_alert=True)
         return
-    # Проверяем, не записан ли уже
     if user_id in going:
         await finalize_callback(callback, "Вы уже записаны", show_alert=True)
         return
     await add_participant(event_id, user_id, "going")
+    await safe_callback_answer(callback, "Вы записаны на мероприятие!")
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
     )
-    await finalize_callback(callback, "Вы записаны на мероприятие!")
 
 
 @router.callback_query(F.data.startswith("waitlist_"))
@@ -207,19 +208,21 @@ async def waitlist_event(callback: CallbackQuery):
     if not event or event["status"] != "active":
         await finalize_callback(callback, "Мероприятие уже завершено или отменено", show_alert=True)
         return
-    # Проверяем, не в основном ли уже
-    if user_id in await get_main_participants(event_id):
+    going, waitlist = await asyncio.gather(
+        get_main_participants(event_id),
+        get_participants(event_id, "waitlist"),
+    )
+    if user_id in going:
         await finalize_callback(callback, "Вы уже в основном списке", show_alert=True)
         return
-    # Проверяем, не в резерве ли
-    if user_id in await get_participants(event_id, "waitlist"):
+    if user_id in waitlist:
         await finalize_callback(callback, "Вы уже в резерве", show_alert=True)
         return
     await add_participant(event_id, user_id, "waitlist")
+    await safe_callback_answer(callback, "Вы добавлены в резерв")
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
     )
-    await finalize_callback(callback, "Вы добавлены в резерв")
 
 
 @router.callback_query(F.data.startswith("driver_"))
@@ -361,13 +364,14 @@ async def choose_driver(callback: CallbackQuery):
         await add_participant(event_id, user_id, "going")
     # Обновляем сообщение
     event = await get_event(event_id)
+    await safe_callback_answer(callback, "Вы успешно присоединились к водителю!")
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
     )
     await finalize_callback(
         callback,
-        "Вы успешно присоединились к водителю!",
         delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+        skip_answer=True,
     )
 
 
@@ -394,10 +398,10 @@ async def decline_event(callback: CallbackQuery):
             )
         except Exception as exc:
             logger.warning("Не удалось уведомить участника из резерва user_id=%s event_id=%s: %s", moved_user, event_id, exc)
+    await safe_callback_answer(callback, "Вы отказались от участия")
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
     )
-    await finalize_callback(callback, "Вы отказались от участия")
 
 
 @router.callback_query(F.data.startswith("delete_"))
@@ -415,6 +419,7 @@ async def delete_event(callback: CallbackQuery):
         await finalize_callback(callback, "Удалять мероприятие может только организатор или администратор.", show_alert=True)
         return
 
+    await safe_callback_answer(callback, "Мероприятие удалено")
     await cancel_event(event_id)
 
     try:
@@ -428,5 +433,3 @@ async def delete_event(callback: CallbackQuery):
             message_id=event["message_id"],
             text="❌ Мероприятие удалено организатором/администратором.",
         )
-
-    await finalize_callback(callback, "Мероприятие удалено")
