@@ -23,9 +23,9 @@ Telegram-бот для приватного сообщества: меропри
 
 - **Python 3.10+**
 - **aiogram 3.x**
-- **YDB (Yandex Database)**
+- **PostgreSQL 16**
 - **APScheduler**
-- **Yandex Cloud Functions** (webhook-режим)
+- **Docker Compose** (рекомендуемый деплой на VDS)
 - Опционально: **OpenWeatherMap** для погоды
 
 ---
@@ -33,18 +33,18 @@ Telegram-бот для приватного сообщества: меропри
 ## Архитектура (кратко)
 
 ### Входные точки
-- **Polling/локально:** `python -m bot.main`
-- **Cloud Functions/webhook:** `dynamic_handler.handler`
+- **VDS / локально (рекомендуется):** `python -m bot.main` или `docker compose up -d`
+- **Legacy Cloud Functions/webhook:** `dynamic_handler.handler` (устаревший путь)
 
 ### Основной поток
 1. Telegram update поступает в `bot.main`.
 2. `Dispatcher` пропускает update через middleware/фильтры.
 3. Нужный handler выполняет бизнес-логику.
-4. Данные читаются/пишутся через `bot.database` → `bot.database_ydb`.
+4. Данные читаются/пишутся через `bot.database` → `bot.database_pg`.
 5. Для событий и уведомлений могут ставиться задания в APScheduler.
 
 ### Хранение состояния
-- FSM хранится в таблице `fsm_states` (YDB), чтобы сценарии не терялись при рестартах.
+- FSM хранится в таблице `fsm_states` (PostgreSQL), чтобы сценарии не терялись при рестартах.
 
 ---
 
@@ -52,6 +52,14 @@ Telegram-бот для приватного сообщества: меропри
 
 ```text
 .
+├── docker-compose.yml
+├── Dockerfile
+├── deploy/
+│   ├── deploy.sh
+│   ├── backup_db.sh
+│   ├── bot-adventure-time.service
+│   ├── postgresql.vds.conf
+│   └── server_hardening.example.sh
 ├── dynamic_handler.py
 ├── requirements.txt
 ├── промт.txt
@@ -257,8 +265,7 @@ Telegram-бот для приватного сообщества: меропри
 Минимально необходимые:
 - `BOT_TOKEN`
 - `GROUP_ID`
-- `YDB_ENDPOINT`
-- `YDB_DATABASE`
+- `DATABASE_URL` (или `PGHOST`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`)
 
 Обычно также нужны:
 - `OWNER_ID`
@@ -268,7 +275,7 @@ Telegram-бот для приватного сообщества: меропри
 - `WEATHER_API_KEY` (опционально)
 
 Новые/важные для производительности:
-- `YDB_SESSION_POOL_SIZE` — размер пула сессий YDB (по умолчанию `30`).
+- `DB_POOL_MAX_SIZE` — размер пула PostgreSQL (по умолчанию `5`, для VDS 2 GB RAM).
 - Погодный HTTP-клиент переиспользует `aiohttp.ClientSession`; зависимость `aiohttp` закреплена на `>=3.13.4`, чтобы закрыть известные DoS/header parser уязвимости старых версий.
 
 Новые runtime-параметры для погоды (задаются в коде, при необходимости можно вынести в env):
@@ -355,7 +362,39 @@ python -m compileall -q bot tests
 
 ---
 
-## CI/CD и деплой в SourceCraft + Yandex Cloud Functions
+## Деплой на VDS (Finland / 2 GB RAM)
+
+Рекомендуемый режим — **long polling** (`python -m bot.main`), потому что APScheduler напоминания и weekly digest работают только в long-running процессе.
+
+### Быстрый старт через Docker Compose
+
+```bash
+cp .env.example .env
+# заполните BOT_TOKEN, GROUP_ID, OWNER_ID, ADMIN_IDS, POSTGRES_PASSWORD
+
+docker compose up -d --build
+docker compose logs -f bot
+```
+
+PostgreSQL слушает только внутреннюю docker-сеть. Бот не открывает входящие HTTP-порты.
+
+### Резервное копирование
+
+```bash
+./deploy/backup_db.sh
+```
+
+Скрипт сохраняет `pg_dump` в `./backups/` и удаляет бэкапы старше 14 дней.
+
+### systemd (опционально)
+
+Пример unit-файла: `deploy/bot-adventure-time.service` (запускает `docker compose up -d` из `/opt/bot_adventure_time`).
+
+---
+
+## Legacy: CI/CD SourceCraft + Yandex Cloud Functions
+
+Устаревший путь деплоя. Для VDS используйте Docker Compose выше.
 
 - Entry point функции: `dynamic_handler.handler`.
 - Источник сборки: корень репозитория.
@@ -389,7 +428,7 @@ python -m compileall -q bot tests
 - Событие не публикуется в группу:
   - проверить `GROUP_ID`, права бота в группе/теме, наличие forum topics.
 - Нет данных в БД:
-  - проверить `YDB_ENDPOINT`/`YDB_DATABASE`, IAM/сервисный аккаунт.
+  - проверить `DATABASE_URL` / `PG*`, что PostgreSQL доступен из контейнера `bot`.
 - Нет напоминаний:
   - проверить старт scheduler и восстановление jobs.
 
@@ -408,8 +447,8 @@ python -m compileall -q bot tests
 
 Что логируется из коробки:
 - Метрики времени обработки update: `p50/p95/p99` (middleware `latency_metrics`).
-- Метрики времени YDB-запросов: `p50/p95/p99` + warning для медленных запросов (`slow_ydb_query_ms > 300`).
-- Инициализированный размер пула YDB (`YDB_SESSION_POOL_SIZE`).
+- Метрики времени PostgreSQL-запросов: `p50/p95/p99` + warning для медленных запросов (`slow_pg_query_ms > 300`).
+- Инициализированный размер пула PostgreSQL (`DB_POOL_MAX_SIZE`).
 
 Как читать эти метрики:
 - `p50` — типичная задержка.
@@ -419,12 +458,12 @@ python -m compileall -q bot tests
 Рекомендации под 200+ пользователей:
 1. Прогнать стресс-тест (200/300/500 одновременных пользователей).
 2. Снять `p50/p95/p99` по update и YDB.
-3. Подобрать `YDB_SESSION_POOL_SIZE` по фактической утилизации и latency.
+3. Подобрать `DB_POOL_MAX_SIZE` по фактической утилизации и latency.
 
 ## Troubleshooting
 
 ### Ошибка `cannot import name get_user_id_by_username from bot.database`
-Причина: отсутствует функция `get_user_id_by_username` в `bot/database_ydb.py`, а `bot/database.py` реэкспортирует symbols через `from bot.database_ydb import *`.
+Причина: отсутствует функция в `bot/database_pg.py`, а `bot/database.py` реэкспортирует symbols через `from bot.database_pg import *`.
 
 Проверка:
 ```bash

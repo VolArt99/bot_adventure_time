@@ -23,8 +23,9 @@ import bot.handlers.roadmap as roadmap
 import bot.handlers.subscriptions as subscriptions
 import bot.handlers.admin as admin
 import bot.handlers.split_bill_feature.handlers as split_bill
-from bot.utils.scheduler import restore_jobs, start_scheduler
-from bot.fsm_storage_ydb import YdbStorage
+from bot.utils.scheduler import restore_jobs, start_scheduler, schedule_digest
+from bot.fsm_storage_pg import PgStorage
+from bot.config import GROUP_ID
 from bot.init_flags import should_run_schema_init, should_run_schema_init_webhook
 from bot.utils.helpers import build_owner_contact_html
 from bot.utils.telegram_errors import is_benign_telegram_error
@@ -55,7 +56,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=BOT_TOKEN)
-storage = YdbStorage()
+storage = PgStorage()
 
 dp = Dispatcher(storage=storage, fsm_strategy=FSMStrategy.GLOBAL_USER)
 _is_initialized = False
@@ -197,7 +198,9 @@ async def ensure_initialized(*, for_polling: bool = False) -> None:
         if for_polling and not _polling_initialized:
             start_scheduler()
             await restore_jobs(bot)
-            logger.info("Планировщик и напоминания восстановлены")
+            if GROUP_ID:
+                schedule_digest(bot, GROUP_ID)
+            logger.info("Планировщик, напоминания и weekly digest восстановлены")
             _polling_initialized = True
 
 async def handler(event: dict, context):
