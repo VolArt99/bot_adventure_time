@@ -174,7 +174,7 @@ class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
         owner_callback.bot.send_message.assert_awaited_once()
         args, kwargs = owner_callback.bot.send_message.await_args
         self.assertEqual(args[0], 42)
-        self.assertIn('напишите владельцу: <a href="https://t.me/source_owner">@source_owner</a>', args[1])
+        self.assertIn('напишите капитану: <a href="https://t.me/source_owner">@source_owner</a>', args[1])
         self.assertEqual(kwargs["parse_mode"], "HTML")
 
 

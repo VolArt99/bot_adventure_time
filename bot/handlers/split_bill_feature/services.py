@@ -18,7 +18,7 @@ from bot.database import (
     update_split_bill_message_id,
 )
 from bot.utils.helpers import get_user_mentions
-from bot.utils.design import BRAND, card_cta, card_header, card_section
+from bot.utils.design import BRAND, brand_voice, card_cta, card_header, card_section, money_collection_line
 from bot.utils.ui import answer_private_final
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,8 @@ async def format_split_bill_text(
     paid_count = sum(1 for p in participants if p.get("is_paid"))
     waiting_count = max(0, len(participants) - paid_count)
     progress_bar = build_payment_progress_bar(paid_count, len(participants))
+    total_amount = float(bill.get("total_amount") or 0)
+    collected_amount = sum(float(p.get("share_amount") or 0) for p in participants if p.get("is_paid"))
     bank = (
         bill.get("transfer_bank_custom")
         if bill.get("transfer_bank") == "other"
@@ -84,8 +86,9 @@ async def format_split_bill_text(
         f"👤 Организатор: {organizer_mention}",
         f"💰 Сумма: <b>{bill.get('total_amount')} ₽</b>",
         *card_section(
-            "Шкала оплат",
+            "Сбор средств",
             [
+                money_collection_line(collected_amount, total_amount),
                 progress_bar,
                 f"Оплачено: <b>{paid_count}</b> / ждём: <b>{waiting_count}</b>",
                 f"👥 участников: <b>{len(participants)}</b>",
@@ -100,19 +103,19 @@ async def format_split_bill_text(
                 f"• Получатель: {bill.get('transfer_recipient_name') or '—'}",
             ],
         ),
-        "",
-        "<b>Участники</b>",
     ]
 
+    checklist_lines: list[str] = []
     if not participants:
-        lines.append("—")
+        checklist_lines.append("—")
     else:
         for p in participants:
             uid = int(p["user_id"])
             paid = "✅" if p.get("is_paid") else "⏳"
             mention = mentions.get(uid, f"id{uid}")
-            lines.append(f"{paid} {mention} — {p.get('share_amount')} ₽")
+            checklist_lines.append(f"{paid} {mention} — {p.get('share_amount')} ₽")
 
+    lines.extend(card_section("Чек-лист оплат", checklist_lines))
     lines.extend(card_cta("Нажмите «Оплатил(а)», когда перевели свою долю."))
     return "\n".join(lines)
 
@@ -160,7 +163,8 @@ async def finalize_split_bill(message: Message, state: FSMContext) -> None:
     await answer_private_final(
         message,
         state,
-        f"✅ Чек «{data.get('title') or f'#{split_id}'}» создан и опубликован.\n"
+        f"✅ {brand_voice('split_bill_created')}\n"
+        f"Чек «{data.get('title') or f'#{split_id}'}»\n"
         f"ID: {split_id}\n"
         f"Ссылка: https://t.me/c/{str(GROUP_ID).replace('-100', '')}/{sent.message_id}",
     )

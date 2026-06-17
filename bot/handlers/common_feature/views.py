@@ -2,35 +2,55 @@ from __future__ import annotations
 
 from html import escape
 
-from bot.texts import APPROVED_MEMBER_START_TEXT, GROUP_RULES_TEXT, ONBOARDING_WELCOME_TEXT
-from bot.utils.design import BRAND, CARD_DIVIDER, card_cta, card_header, card_section, step_badge
+from bot.texts import GROUP_RULES_TEXT
+from bot.utils.design import (
+    BRAND,
+    brand_voice,
+    card_cta,
+    card_header,
+    card_section,
+    season_copy,
+    seasonal_card_divider,
+    seasonal_menu_icon,
+    seasonal_menu_label,
+    step_badge,
+)
 
 
 def build_onboarding_welcome_text() -> str:
     """Приветственный текст первого шага onboarding."""
-    return f"{step_badge(1, 3, 'Старт')}\n{CARD_DIVIDER}\n" + ONBOARDING_WELCOME_TEXT
+    return (
+        f"{step_badge(1, 3, 'Старт')}\n"
+        f"{seasonal_card_divider()}\n"
+        f"{brand_voice('onboarding_welcome')}"
+    )
 
 
 def build_approved_member_start_text() -> str:
     """Текст /start для уже подтверждённого участника."""
-    return APPROVED_MEMBER_START_TEXT
+    return brand_voice("approved_member_start")
 
 
 def build_group_rules_text() -> str:
     """Текст правил для onboarding-сценария."""
-    return f"{step_badge(2, 3, 'Правила')}\n{CARD_DIVIDER}\n" + GROUP_RULES_TEXT
+    return (
+        f"{step_badge(2, 3, 'Правила')}\n"
+        f"{seasonal_card_divider()}\n"
+        f"{GROUP_RULES_TEXT}\n\n"
+        f"<i>{brand_voice('onboarding_rules_footer')}</i>"
+    )
 
 
 def build_rules_accepted_existing_member_text() -> str:
-    return "✅ Правила приняты. Вы уже участник группы, доступ открыт."
+    return brand_voice("rules_accepted_member")
 
 
 def build_rules_accepted_pending_text() -> str:
-    return f"{step_badge(3, 3, 'Заявка')}\n✅ Правила приняты. Заявка отправлена владельцу на проверку."
+    return f"{step_badge(3, 3, 'Заявка')}\n{brand_voice('rules_accepted_pending')}"
 
 
 def build_pending_request_text() -> str:
-    return "⏳ Ваша заявка уже ожидает решения владельца."
+    return "⏳ Ваша заявка уже ожидает решения капитана."
 
 
 def build_onboarding_guard_text() -> str:
@@ -53,10 +73,11 @@ def build_owner_request_text(*, user_id: int, full_name: str, username: str | No
 def build_approval_message(*, invite_link: str, owner_contact_html: str) -> str:
     return (
         f"{step_badge(3, 3, 'Вход в группу')}\n"
-        f"{CARD_DIVIDER}\n"
-        "✅ Ваша заявка одобрена. Ссылка для входа в группу:\n"
+        f"{seasonal_card_divider()}\n"
+        f"{brand_voice('approval_welcome')}\n\n"
+        f"{brand_voice('approval_invite')}\n"
         f"{escape(invite_link)}\n\n"
-        f"Если возникнут вопросы — напишите владельцу: {owner_contact_html}."
+        f"Если возникнут вопросы — напишите капитану: {owner_contact_html}."
     )
 
 
@@ -78,6 +99,7 @@ MENU_BUTTON_DESCRIPTIONS = {
     "🔔 Уведомления": "настроить интересы и получать персональную подборку.",
     "🤝 Комьюнити": "включить random 1:1 и посмотреть активность участников.",
     "❓ Помощь": "прочитать справку без лишней клавиатуры внизу.",
+    "☕ Поддержать": "открыть ссылки на сборы для поддержки бота.",
     "Админ": "отчёты, диагностика и служебные действия для админов.",
 }
 
@@ -91,7 +113,7 @@ SECTION_TONES = {
             "• афиша, поиск и ваши мероприятия;",
             "• служебные действия только по карточкам событий.",
         ],
-        "cta": "Выберите действие по событиям ниже.",
+        "cta": "Куда отправимся? Выбирай маршрут ниже.",
     },
     "money": {
         "icon": "🟢🧾",
@@ -102,7 +124,7 @@ SECTION_TONES = {
             "• вручную добавить или удалить участника;",
             "• быстро вернуться к оплатам без поиска команд.",
         ],
-        "cta": "Выберите действие по деньгам ниже.",
+        "cta": "Соберём команду и разделим расходы.",
     },
     "notifications": {
         "icon": "🔵🔔",
@@ -113,7 +135,7 @@ SECTION_TONES = {
             "• получить персональную подборку;",
             "• держать ленту событий релевантной.",
         ],
-        "cta": "Настройте подписки или откройте персональный дайджест.",
+        "cta": "Настрой подписки или открой персональную афишу.",
     },
     "community": {
         "icon": "🟠🤝",
@@ -124,7 +146,7 @@ SECTION_TONES = {
             "• посмотреть личную статистику;",
             "• открыть топ активности за 30 дней.",
         ],
-        "cta": "Выберите комьюнити-действие ниже.",
+        "cta": "Найди попутчиков и новых друзей.",
     },
     "help": {
         "icon": "⚪❓",
@@ -132,9 +154,10 @@ SECTION_TONES = {
         "subtitle": "Справка и быстрый статус",
         "focus": [
             "• /help отправит чистую справку без меню;",
-            "• /status быстро проверит, что бот онлайн.",
+            "• /status быстро проверит, что бот онлайн;",
+            "• /donate — ссылки на сборы для поддержки бота.",
         ],
-        "cta": "Откройте справку или проверьте статус.",
+        "cta": "Открой справку или проверь статус.",
     },
     "quick": {
         "icon": "🟣⚡",
@@ -145,16 +168,16 @@ SECTION_TONES = {
             "• астрономия, картинг и кооперативная игра на ПК;",
             "• также доступны книжный клуб, квиз, настолки и прогулка.",
         ],
-        "cta": "Нажмите шаблон — бот подставит название, описание и категорию.",
+        "cta": "Нажми шаблон — бот подставит название, описание и категорию.",
     },
 }
 
 INLINE_BUTTON_HELP = [
-    "✅ Пойду / ⏳ Резерв / ❌ Отказаться — обновляют статус участия в карточке мероприятия.",
+    "✅ В путь / ⏳ В резерве / ❌ В другой раз — обновляют статус участия в карточке мероприятия.",
     "🚗 Водитель / 👥 Попутка — включают карпулинг для события, если он разрешён.",
     "🗑 Удалить — удаляет событие у создателя/админа после проверки прав.",
     "↩️ Назад / ❌ Отмена / ⏭ Пропустить — навигация в мастерах без ручного ввода команд.",
-    "🚀 Опубликовать — финальная публикация события после превью.",
+    "🗺️ Публикуем! — финальная публикация приключения после превью.",
     "📌 В основной чат / 📁 Тема — выбор места публикации в группе или forum topic.",
     "📆 За неделю / 🗓 За месяц / 🧾 За всё время — выбор периода для списков и дайджестов.",
     "✅ Присоединиться / 🚪 Выйти / 💸 Оплатил(а) / 🔄 Обновить / 🔒 Закрыть чек — управление split-bill карточкой.",
@@ -168,10 +191,33 @@ def _button_description_lines(items) -> list[str]:
     return [f"• {item}" for item in items]
 
 
+def build_donation_text() -> str:
+    """Текст для команды /donate."""
+    return "\n".join([
+        *card_header("☕", "Поддержать бота", "Помогите оплачивать сервер и развитие"),
+        *card_section("Зачем", [
+            "Бот работает на арендованном сервере и требует постоянных расходов.",
+            "Любая сумма помогает держать бота онлайн и развивать функции.",
+        ]),
+        *card_cta("Выберите удобный способ ниже — откроется страница сбора."),
+    ])
+
+
+def build_donation_unavailable_text() -> str:
+    return "☕ Сборы для пожертвований пока не настроены. Обратитесь к владельцу бота."
+
+
 def build_main_menu_text(*, is_admin_or_owner: bool) -> str:
     """Стильный текст главного меню в ЛС."""
+    season_icon = seasonal_menu_icon()
+    season_label = seasonal_menu_label()
     lines = [
-        *card_header("✨", "Adventure Time Control Center", "Единая панель действий бота"),
+        *card_header(
+            f"✨{season_icon}",
+            "Adventure Time Control Center",
+            f"{season_label} · {season_copy('tagline')}",
+        ),
+        f"<i>{brand_voice('menu_tagline')}</i>",
         *card_section(
             "Разделы",
             [
@@ -182,7 +228,7 @@ def build_main_menu_text(*, is_admin_or_owner: bool) -> str:
             ],
         ),
         *card_section("Что делает каждая кнопка", _button_description_lines(MENU_BUTTON_DESCRIPTIONS)),
-        *card_cta("Выберите действие кнопкой ниже."),
+        *card_cta(brand_voice("menu_cta")),
     ]
     if is_admin_or_owner:
         lines.insert(-2, f"{BRAND['admin']} <i>Вам доступен админ-раздел.</i>")
@@ -199,11 +245,11 @@ def build_menu_section_text(section: str, *, is_admin_or_owner: bool) -> str | N
             *card_section("Фокус", ["• метрики и отчёты;", "• темы, интро и синхронизация;", "• публикации и random 1:1."]),
             *card_cta("Выберите админ-действие ниже."),
         ])
-    
+
     tone = SECTION_TONES.get(section)
     if not tone:
         return None
-    
+
     return "\n".join([
         *card_header(str(tone["icon"]), str(tone["title"]), str(tone["subtitle"])),
         *card_section("Фокус", list(tone["focus"])),
@@ -224,6 +270,7 @@ COMMAND_ACTIONS.update({
     "help": ("/help", "Подробная справка по ролям и сценариям."),
     "menu": ("/menu", "Главное кнопочное меню."),
     "status": ("/status", "Проверить, что бот онлайн."),
+    "donate": ("/donate", "Поддержать работу бота — ссылки на сборы."),
     "create_event": ("/create_event", "Запустить мастер создания мероприятия."),
     "my_events": ("/my_events", "Открыть список ваших мероприятий."),
     "find_events": ("/find_events &lt;текст&gt;", "Поиск активных мероприятий. Пример: <code>/find_events квиз</code>"),
@@ -277,7 +324,8 @@ def build_member_help_text() -> str:
         "• /start — запуск бота и проверка доступа.\n"
         "• /help — показать эту подробную справку.\n"
         "• /menu — открыть стильное кнопочное меню.\n"
-        "• /status — быстрый признак, что бот онлайн.\n\n"
+        "• /status — быстрый признак, что бот онлайн.\n"
+        "• /donate — поддержать работу бота (ссылки на сборы).\n\n"
         "📅 <b>Мероприятия</b>\n"
         "• /create_event — пошагово создать мероприятие и опубликовать в группе.\n"
         "• /my_events — список ваших мероприятий и управление ими.\n"

@@ -24,7 +24,7 @@ from bot.utils.pairing import build_random_pairs  # noqa: E402
 from bot.handlers.event_scenarios.shared import CreateEvent, event_step_prompt  # noqa: E402
 from bot.handlers.split_bill_feature.handlers import SplitBillCreate, split_bill_step_prompt  # noqa: E402
 from bot.handlers.split_bill_feature.services import build_payment_progress_bar  # noqa: E402
-from bot.utils.design import card_progress_bar  # noqa: E402
+from bot.utils.design import card_progress_bar, category_accent_strip, money_collection_line, seasonal_menu_icon  # noqa: E402
 from bot.texts import format_digest_text  # noqa: E402
 
 class TextFormattersTest(unittest.TestCase):
@@ -115,8 +115,9 @@ class FeatureHelpersTest(unittest.TestCase):
 
         self.assertIn("⚡ Быстрый взгляд", text)
         self.assertIn("🎟 Места:", text)
-        self.assertIn("🏷 Категории: 🟢 Спорт", text)
-        self.assertIn("Выберите CTA под карточкой", text)
+        self.assertIn("🟢🟢🟢🟢", text)
+        self.assertIn("🏷️ Категории: 🟢 Спорт", text)
+        self.assertIn("Готов к приключению", text)
         self.assertIn("Яндекс Карты", text)
         self.assertNotIn("Яндекс Навигатор", text)
         self.assertNotIn("/navi/", text)
@@ -140,12 +141,22 @@ class FeatureHelpersTest(unittest.TestCase):
         self.assertEqual(len(leftovers), 1)
 
     def test_wizard_progress_prompts(self):
-        self.assertIn("Шаг 7/12 · 📍 Место", event_step_prompt(CreateEvent.location.state, "Введите место"))
+        self.assertIn("Шаг 7/12 · 📍 Маршрут", event_step_prompt(CreateEvent.location.state, "Введите место"))
         self.assertIn("Шаг 4/7 · 🗂 Публикация", split_bill_step_prompt(SplitBillCreate.target_topic.state, "Выберите тему"))
 
     def test_split_bill_payment_progress_bar(self):
         self.assertEqual(build_payment_progress_bar(4, 6), "████░░ 4/6 оплатили")
         self.assertEqual(build_payment_progress_bar(0, 0), "░░░░░░ 0/0 оплатили")
+
+    def test_category_accent_strip_uses_group_color(self):
+        self.assertEqual(category_accent_strip("спорт"), "🟢🟢🟢🟢")
+        self.assertEqual(category_accent_strip("кино"), "🟤🟤🟤🟤")
+
+    def test_money_collection_line(self):
+        self.assertIn("1500/3000 ₽", money_collection_line(1500, 3000))
+
+    def test_seasonal_menu_icon_is_defined(self):
+        self.assertIn(seasonal_menu_icon(), {"❄️", "🌸", "☀️", "🍂"})
 
     def test_digest_uses_event_counts_for_status_badges(self):
         text = format_digest_text(

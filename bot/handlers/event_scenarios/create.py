@@ -8,6 +8,7 @@ from bot.constants import CARPOOL_HELP_TEXT
 from bot.filters.registered_user import registered_user_only
 from bot.keyboards import cancel_keyboard, skip_field_keyboard, carpool_keyboard, event_period_mode_keyboard, event_price_mode_keyboard
 from .shared import CreateEvent, event_step_prompt, parse_datetime
+from bot.utils.design import wizard_prompt
 from bot.utils.callbacks import finalize_callback
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 from bot.utils.ui import answer_private_intermediate, err
@@ -19,7 +20,7 @@ async def start_create_event_wizard(message: Message, state: FSMContext) -> None
     await answer_private_intermediate(
         message,
         state,
-        event_step_prompt(CreateEvent.title.state, "📝 Введите название мероприятия:"),
+        event_step_prompt(CreateEvent.title.state, wizard_prompt("title")),
         reply_markup=cancel_keyboard(),
     )
 
@@ -37,46 +38,46 @@ async def cmd_create_event(message: Message, state: FSMContext):
 async def _show_event_step_prompt(message: Message, state: FSMContext, state_name: str) -> None:
     data = await state.get_data()
     if state_name == CreateEvent.title.state:
-        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.title.state, "📝 Введите название мероприятия:"), reply_markup=cancel_keyboard())
+        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.title.state, wizard_prompt("title")), reply_markup=cancel_keyboard())
     elif state_name == CreateEvent.description.state:
-        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.description.state, "📄 Введите описание (или 'пропустить'):"), reply_markup=skip_field_keyboard("description", back_callback="event_back"))
+        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.description.state, wizard_prompt("description")), reply_markup=skip_field_keyboard("description", back_callback="event_back"))
     elif state_name == CreateEvent.datetime.state:
         await answer_private_intermediate(
             message,
             state,
             event_step_prompt(
                 CreateEvent.datetime.state,
-                f"🗓 Введите дату и время (ДД.ММ.ГГГГ ЧЧ:ММ):\nПример: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+                f"{wizard_prompt('datetime')}\nПример: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
             ),
             reply_markup=cancel_keyboard(back_callback="event_back"),
         )
     elif state_name == CreateEvent.period_mode.state:
-        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.period_mode.state, "📆 Это разовое мероприятие или у него есть период действия?"), reply_markup=event_period_mode_keyboard(back_callback="event_back"))
+        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.period_mode.state, wizard_prompt("period_mode")), reply_markup=event_period_mode_keyboard(back_callback="event_back"))
     elif state_name == CreateEvent.period_end.state:
-        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.period_mode.state, "🏁 Введите дату окончания периода (ДД.ММ.ГГГГ ЧЧ:ММ):"), reply_markup=cancel_keyboard(back_callback="event_back"))
+        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.period_end.state, wizard_prompt("period_end")), reply_markup=cancel_keyboard(back_callback="event_back"))
     elif state_name == CreateEvent.duration.state:
         prompt = event_step_prompt(
             CreateEvent.duration.state,
-            "⏱ Введите длительность одной встречи в часах (или 'пропустить'):"
+            wizard_prompt("duration")
             if data.get("period_end")
-            else "⏱ Введите длительность в часах (или 'пропустить'):\nПример: 2.5",
+            else f"{wizard_prompt('duration')}\nПример: 2.5",
         )
         await answer_private_intermediate(message, state, prompt, reply_markup=skip_field_keyboard("duration", back_callback="event_back"))
     elif state_name == CreateEvent.location.state:
-        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.location.state, "📍 Введите место проведения (или пропустите):"), reply_markup=skip_field_keyboard("location", back_callback="event_back"))
+        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.location.state, wizard_prompt("location")), reply_markup=skip_field_keyboard("location", back_callback="event_back"))
     elif state_name == CreateEvent.price_mode.state:
-        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.price_mode.state, "💰 Выберите формат стоимости мероприятия:"), reply_markup=event_price_mode_keyboard(back_callback="event_back"))
+        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.price_mode.state, wizard_prompt("price_mode")), reply_markup=event_price_mode_keyboard(back_callback="event_back"))
     elif state_name == CreateEvent.price.state:
         mode = data.get("price_mode")
         prompt = event_step_prompt(
             CreateEvent.price_mode.state,
-            "💰 Введите общую сумму.\nПример: 5000"
+            wizard_prompt("price_total")
             if mode == "total"
-            else "💰 Введите сумму с человека.\nПример: 500",
+            else wizard_prompt("price_person"),
         )
         await answer_private_intermediate(message, state, prompt, reply_markup=cancel_keyboard(back_callback="event_back"))
     elif state_name == CreateEvent.limit.state:
-        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.limit.state, "👥 Введите лимит участников (число, 'без лимита' или 'пропустить'):"), reply_markup=skip_field_keyboard("limit", back_callback="event_back"))
+        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.limit.state, wizard_prompt("limit")), reply_markup=skip_field_keyboard("limit", back_callback="event_back"))
     elif state_name == CreateEvent.carpool.state:
         await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.carpool.state, CARPOOL_HELP_TEXT), reply_markup=carpool_keyboard(back_callback="event_back"), parse_mode="HTML")
 
@@ -201,7 +202,7 @@ async def quick_event_template(callback: CallbackQuery, state: FSMContext):
             CreateEvent.datetime.state,
             f"⚡ Шаблон «{template['title']}» применён.\n"
             f"Категории и описание уже подставлены.{hint}\n\n"
-            "🗓 Введите дату и время старта (ДД.ММ.ГГГГ ЧЧ:ММ):",
+            f"🗓 {wizard_prompt('datetime')}",
         ),
         reply_markup=cancel_keyboard(),
     )
@@ -215,7 +216,7 @@ async def process_title(message: Message, state: FSMContext):
     await answer_private_intermediate(
         message,
         state,
-        event_step_prompt(CreateEvent.description.state, "📄 Введите описание (или 'пропустить'):"),
+        event_step_prompt(CreateEvent.description.state, wizard_prompt("description")),
         reply_markup=skip_field_keyboard("description", back_callback="event_back"),
     )
 
@@ -229,7 +230,7 @@ async def skip_description(callback: CallbackQuery, state: FSMContext):
         state,
         event_step_prompt(
             CreateEvent.datetime.state,
-            f"🗓 Введите дату и время (ДД.ММ.ГГГГ ЧЧ:ММ):\nПример: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+            f"{wizard_prompt('datetime')}\nПример: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
         ),
         reply_markup=cancel_keyboard(back_callback="event_back"),
     )
@@ -245,7 +246,7 @@ async def process_description(message: Message, state: FSMContext):
         state,
         event_step_prompt(
             CreateEvent.datetime.state,
-            f"🗓 Введите дату и время (ДД.ММ.ГГГГ ЧЧ:ММ):\nПример: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+            f"{wizard_prompt('datetime')}\nПример: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
         ),
         reply_markup=cancel_keyboard(back_callback="event_back"),
     )
@@ -271,7 +272,7 @@ async def process_datetime(message: Message, state: FSMContext):
         state,
         event_step_prompt(
             CreateEvent.period_mode.state,
-            "📆 Это разовое мероприятие или у него есть период действия?\n"
+            f"{wizard_prompt('period_mode')}\n"
             "Например: книжный клуб читает книгу с даты старта до даты дедлайна.",
         ),
         reply_markup=event_period_mode_keyboard(back_callback="event_back"),
@@ -289,7 +290,7 @@ async def process_period_mode(callback: CallbackQuery, state: FSMContext):
             state,
             event_step_prompt(
                 CreateEvent.duration.state,
-                "⏱ Введите длительность в часах (или 'пропустить'):\nПример: 2.5",
+                f"{wizard_prompt('duration')}\nПример: 2.5",
             ),
             reply_markup=skip_field_keyboard("duration", back_callback="event_back"),
         )
@@ -303,8 +304,7 @@ async def process_period_mode(callback: CallbackQuery, state: FSMContext):
             state,
             event_step_prompt(
                 CreateEvent.period_mode.state,
-                "🏁 Введите дату окончания периода (ДД.ММ.ГГГГ ЧЧ:ММ):\n"
-                "Пример: 30.06.2026 23:59",
+                f"{wizard_prompt('period_end')}\nПример: 30.06.2026 23:59",
             ),
             reply_markup=cancel_keyboard(back_callback="event_back"),
         )
@@ -335,7 +335,7 @@ async def process_period_end(message: Message, state: FSMContext):
         state,
         event_step_prompt(
             CreateEvent.duration.state,
-            "⏱ Введите длительность одной встречи в часах (или 'пропустить'):\n"
+            f"{wizard_prompt('duration')}\n"
             "Для книжного клуба можно пропустить — период уже сохранён.",
         ),
         reply_markup=skip_field_keyboard("duration", back_callback="event_back"),
@@ -346,7 +346,7 @@ async def process_period_end(message: Message, state: FSMContext):
 async def skip_duration(callback: CallbackQuery, state: FSMContext):
     await state.update_data(duration_minutes=None)
     await state.set_state(CreateEvent.location)
-    await answer_private_intermediate(callback.message, state, event_step_prompt(CreateEvent.location.state, "📍 Введите место проведения (или пропустите):"), reply_markup=skip_field_keyboard("location", back_callback="event_back"))
+    await answer_private_intermediate(callback.message, state, event_step_prompt(CreateEvent.location.state, wizard_prompt("location")), reply_markup=skip_field_keyboard("location", back_callback="event_back"))
     await finalize_callback(callback, "Длительность пропущена", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
@@ -363,7 +363,7 @@ async def process_duration(message: Message, state: FSMContext):
 
     await state.update_data(duration_minutes=duration_minutes)
     await state.set_state(CreateEvent.location)
-    await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.location.state, "📍 Введите место проведения (или пропустите):"), reply_markup=skip_field_keyboard("location", back_callback="event_back"))
+    await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.location.state, wizard_prompt("location")), reply_markup=skip_field_keyboard("location", back_callback="event_back"))
 
 
 async def _ask_price_mode(message: Message, state: FSMContext) -> None:
@@ -371,7 +371,7 @@ async def _ask_price_mode(message: Message, state: FSMContext) -> None:
     await answer_private_intermediate(
         message,
         state,
-        event_step_prompt(CreateEvent.price_mode.state, "💰 Выберите формат стоимости мероприятия:"),
+        event_step_prompt(CreateEvent.price_mode.state, wizard_prompt("price_mode")),
         reply_markup=event_price_mode_keyboard(back_callback="event_back"),
     )
 
@@ -402,7 +402,7 @@ async def process_price_mode(callback: CallbackQuery, state: FSMContext):
         await answer_private_intermediate(
             callback.message,
             state,
-            event_step_prompt(CreateEvent.limit.state, "👥 Введите лимит участников (число, 'без лимита' или 'пропустить'):"),
+            event_step_prompt(CreateEvent.limit.state, wizard_prompt("limit")),
             reply_markup=skip_field_keyboard("limit", back_callback="event_back"),
         )
         await finalize_callback(callback, "Бесплатно", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
@@ -410,9 +410,9 @@ async def process_price_mode(callback: CallbackQuery, state: FSMContext):
 
     await state.set_state(CreateEvent.price)
     if mode == "total":
-        prompt = event_step_prompt(CreateEvent.price_mode.state, "💰 Введите общую сумму.\nПример: 5000")
+        prompt = event_step_prompt(CreateEvent.price_mode.state, wizard_prompt("price_total"))
     else:
-        prompt = event_step_prompt(CreateEvent.price_mode.state, "💰 Введите сумму с человека.\nПример: 500")
+        prompt = event_step_prompt(CreateEvent.price_mode.state, wizard_prompt("price_person"))
     await answer_private_intermediate(callback.message, state, prompt, reply_markup=cancel_keyboard(back_callback="event_back"))
     await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
@@ -438,7 +438,7 @@ async def process_price(message: Message, state: FSMContext):
     await answer_private_intermediate(
         message,
         state,
-        event_step_prompt(CreateEvent.limit.state, "👥 Введите лимит участников (число, 'без лимита' или 'пропустить'):"),
+        event_step_prompt(CreateEvent.limit.state, wizard_prompt("limit")),
         reply_markup=skip_field_keyboard("limit", back_callback="event_back"),
     )
 

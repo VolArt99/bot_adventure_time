@@ -8,6 +8,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgresql.vds.conf:/etc/postgresql/postgresql.conf:ro
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    mem_limit: 768m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bot} -d ${POSTGRES_DB:-adventure_time}"]
       interval: 10s
@@ -29,6 +32,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    mem_limit: 512m
     # Бот работает в polling-режиме и не требует входящих HTTP-портов
     # ports: []
 

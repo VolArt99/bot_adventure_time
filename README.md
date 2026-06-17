@@ -34,7 +34,6 @@ Telegram-бот для приватного сообщества: меропри
 
 ### Входные точки
 - **VDS / локально (рекомендуется):** `python -m bot.main` или `docker compose up -d`
-- **Legacy Cloud Functions/webhook:** `dynamic_handler.handler` (устаревший путь)
 
 ### Основной поток
 1. Telegram update поступает в `bot.main`.
@@ -59,21 +58,18 @@ Telegram-бот для приватного сообщества: меропри
 │   ├── backup_db.sh
 │   ├── bot-adventure-time.service
 │   ├── postgresql.vds.conf
-│   └── server_hardening.example.sh
-├── dynamic_handler.py
+│   ├── server_hardening.example.sh
+│   └── VDS_SETUP.md
 ├── requirements.txt
 ├── промт.txt
 ├── README.md
 ├── tests/
-│   ├── conftest.py
 │   ├── test_access_and_flows.py
-│   ├── test_database_ydb_query_patch.py
-│   ├── test_database_ydb_schema_limits.py
-│   ├── test_database_ydb_user_events_query.py
-│   ├── test_fsm_storage_ydb.py
-│   ├── test_main_init_flags.py
-│   ├── test_scheduler_config.py
-│   └── test_texts.py
+│   ├── test_help_text_html.py
+│   ├── test_texts.py
+│   ├── test_fsm_storage_pg.py
+│   ├── test_db_pool.py
+│   └── … (см. `tests/test_*.py`)
 └── bot/
     ├── __init__.py
     ├── main.py
@@ -85,8 +81,9 @@ Telegram-бот для приватного сообщества: меропри
     ├── keyboards.py
     ├── check_env.py
     ├── database.py
-    ├── database_ydb.py
-    ├── fsm_storage_ydb.py
+    ├── database_pg.py
+    ├── db_pool.py
+    ├── fsm_storage_pg.py
     ├── middleware/
     │   ├── __init__.py
     │   ├── command_access.py
@@ -116,22 +113,30 @@ Telegram-бот для приватного сообщества: меропри
     │       ├── cancel.py
     │       ├── category.py
     │       └── carpool.py
+    ├── commands.py                # единый реестр команд
+    ├── db_pool.py
+    ├── fsm_storage_pg.py
     └── utils/
         ├── __init__.py
+        ├── design.py              # BRAND_VOICE, SEASON_COPY, визуальные primitives
         ├── scheduler.py
         ├── weather.py
-        ├── metrics.py        
+        ├── metrics.py
         ├── topics.py
         ├── event_links.py
         ├── helpers.py
         └── pairing.py
 ```
 
+> Полный список тестов: `tests/test_*.py` (тексты, доступы, FSM PG, pool, callbacks и др.).
+
 ### Что где находится и за что отвечает
 
 #### Корень проекта
-- `dynamic_handler.py` — лёгкая обёртка entrypoint для Cloud Functions.
-- `requirements.txt` — корневой файл зависимостей (подтягивает зависимости из `bot/requirements.txt`).
+- `docker-compose.yml` — postgres + bot, лимиты RAM, тюнинг PG.
+- `deploy/postgresql.vds.conf` — настройки PostgreSQL для 2 ГиБ RAM.
+- `deploy/VDS_SETUP.md` — пошаговая настройка VDS.
+- `requirements.txt` — зависимости (`bot/requirements.txt`).
 - `.env.example` — безопасный шаблон переменных окружения без секретов.
 - `README.md` — этот документ.
 - `промт.txt` — проектный технический промт/guide для разработки.
@@ -139,7 +144,7 @@ Telegram-бот для приватного сообщества: меропри
 #### `bot/main.py`
 - Инициализация бота, dispatcher, FSM storage.
 - Регистрация роутеров и middleware.
-- Режим polling + webhook handler.
+- Режим polling.
 - Ленивая инициализация БД/тем/планировщика.
 - Глобальный error-handler с уведомлением владельца в ЛС и троттлингом повторов ошибок.
 
@@ -148,23 +153,26 @@ Telegram-бот для приватного сообщества: меропри
 - Роли/лимиты/набор разрешённых команд.
 - Таймзона и параметры дайджеста/напоминаний.
 
-#### `bot/database_ydb.py`
-- Создание схемы YDB таблиц.
+#### `bot/database_pg.py`
+- Создание схемы PostgreSQL.
 - Все CRUD-операции по событиям, участникам, темам, random 1:1, split bill и т.д.
 - Агрегации/отчёты/поисковые запросы.
 
 #### `bot/handlers/`
-- `common.py` — совместимый фасад; основная реализация в `common_feature/*`.
-- `common_feature/handlers.py` — хендлеры `/start`, `/help`, `/status`, onboarding, owner approve/reject, служебные команды.
-- `common_feature/services.py` — сервисные функции (проверка участия в группе, notify owner и т.д.).
-- `common_feature/views.py` — формирование крупных текстов (например, `/help`).
-- `events.py` + `event_scenarios/*` — FSM-сценарии создания/редактирования/категоризации событий.
-- `participation.py` — inline-кнопки участия (иду/резерв/отказ, карпулинг и т.п.).
+- `common_feature/handlers.py` — `/start`, `/help`, `/menu`, `/status`, `/donate`, onboarding, owner approve/reject, служебные команды.
+- `common_feature/services.py` — проверка участия в группе, notify owner и т.д.
+- `common_feature/views.py` — help, menu, onboarding-тексты (через `brand_voice` / `season_copy`).
+- `events.py` + `event_scenarios/*` — FSM создания/редактирования/категоризации событий.
+- `participation.py` — кнопки участия (в путь / резерв / в другой раз, карпулинг).
 - `split_bill_feature/handlers.py` — FSM и callback-хендлеры split bill.
-- `split_bill_feature/services.py` — сервисная логика split bill (формат/обновление карточки и т.д.).
-- `split_bill_feature/views.py` — текстовые шаблоны split bill.
+- `split_bill_feature/services.py` — формат карточки, шкала сбора, чек-лист оплат.
 - `roadmap.py` — статистика, top, find, random optin/optout/pairs.
-- `digest.py`, `subscriptions.py`, `my_events.py` — соответствующие пользовательские функции.
+- `digest.py`, `subscriptions.py`, `my_events.py`, `admin.py` — профильные сценарии.
+
+#### `bot/utils/design.py`
+- Единый визуальный язык: `BRAND_VOICE`, `SEASON_COPY`, `WIZARD_PROMPTS`.
+- Хелперы: `brand_voice()`, `season_copy()`, `category_accent_strip()`, `card_progress_bar()`, `money_collection_line()`.
+- Сезонная шапка меню и дайджеста (зима / весна / лето / осень).
 
 #### `bot/middleware/`
 - `command_access.py` — role-based доступ и лимиты команд.
@@ -183,19 +191,20 @@ Telegram-бот для приватного сообщества: меропри
 - `pairing.py` — алгоритм random-пар 1:1.
 
 #### `tests/`
-- Набор unit/integration-like тестов для ключевых модулей: тексты, FSM storage, доступы, init-флаги, schema/query ограничения.
+- Unit-тесты: тексты и брендинг, HTML-экранирование, доступы, FSM storage PG, pool, callbacks, scheduler.
 
 ---
 
 ## Команды бота
 
-> Фактическая доступность зависит от роли (`OWNER_ID`, `ADMIN_IDS`, approved-member) и лимитов из `config.py`.
+> Реестр команд: `bot/commands.py`. Доступность зависит от роли (`OWNER_ID`, `ADMIN_IDS`, approved-member) и лимитов из `config.py`.
 
 ### Базовые
-- `/start` — вход/онбординг; для уже одобренного участника показывает приветствие и кнопку перехода в `/menu`.
-- `/help` — подробная справка без прикреплённого меню снизу.
-- `/menu` — стильное кнопочное меню с разделами: 🎉 События, 🧾 Деньги, 🔔 Уведомления, 🤝 Комьюнити и админ-панелью для администраторов.
-- `/status` — быстрый признак, что бот онлайн.
+- `/start` — вход/онбординг; для одобренного участника — приветствие и кнопка перехода в `/menu`.
+- `/help` — подробная справка без прикреплённого меню.
+- `/menu` — Control Center с разделами 🎉 События, 🧾 Деньги, 🔔 Уведомления, 🤝 Комьюнити (+ админ для админов).
+- `/status` — быстрая проверка, что бот онлайн.
+- `/donate` — ссылки на сборы (Сбербанк / Т-Банк) в ЛС; доступна и не-участникам (`OUTSIDER_ALLOWED_COMMANDS=start,donate`).
 
 ### Мероприятия
 - `/create_event` — пошаговое создание события (в т.ч. выбор формата цены: общая/с человека/бесплатно; место проведения можно пропустить кнопкой).
@@ -235,17 +244,18 @@ Telegram-бот для приватного сообщества: меропри
 - `/roles`, `/usage_stats`, `/debug_info`, `/list_topics`, `/update_topic_names`, `/admin_report`, `/pending_intro`, `/send_events_list`, `/member_reengage`, `/sync_members`.
 
 ### UX и визуальное оформление
-- `/menu` показывает компактный Control Center с HTML-оформлением и inline-кнопками; `/start` даёт приветствие и кнопку перехода в `/menu`, а `/help` отправляет только справочный текст.
-- Все новые карточки используют единый дизайн-тон: брендовый emoji, заголовок, разделитель, тематические секции и CTA-блок.
-- Кнопки главного меню открывают разделы верхнего уровня: 🎉 События, 🧾 Деньги, 🔔 Уведомления, 🤝 Комьюнити; команды не дублируются между этими разделами.
-- В `/menu` есть быстрые сценарии для мастера мероприятия: 💪 спорт, 🗣 языковой клуб, 🍔 еда, 🎬 кино, 🔭 астрономия, 🎓 лекция, 🏎 картинг, 🖥 кооп на ПК, 📚 книжный клуб, 🧠 квиз, 🎲 настолки, 🚶 прогулка.
-- Мастера создания мероприятия и split-bill показывают прогресс-индикатор вида `Шаг 7/12 · 📍 Место`.
-- Категории отображаются едиными бейджами: 🎲 Настолки, 📚 Книги, 🚶 Прогулки, 🍽 Еда, 🧠 Квиз.
-- Карточка мероприятия показывает шаблон состояния: 🔥 скоро, ✅ набор открыт, ⏳ резерв или 🚫 мест нет.
-- Перед публикацией мероприятия бот показывает мини-превью карточки и просит подтвердить отправку.
-- Карточка split-bill показывает блочную шкалу оплат, например `████░░ 4/6 оплатили`.
-- Админские карточки и action-кнопки сделаны более строгими: короткие подписи, меньше emoji.
-- Мастера создания мероприятия и split-bill поддерживают кнопку «↩️ Назад» на ключевых шагах, чтобы пользователь мог исправить ввод без отмены сценария.
+- Тон голоса бота — приключенческий (Adventure Time community), без копирования персонажей мультсериала. Тексты централизованы в `bot/utils/design.py` (`BRAND_VOICE`, `SEASON_COPY`, `WIZARD_PROMPTS`).
+- `/menu` — сезонная шапка (❄️/🌸/☀️/🍂), слоган «Куда отправимся сегодня?», разделитель `═ emoji ═`.
+- Кнопки участия в карточке: `✅ В путь!` / `⏳ В резерве` / `❌ В другой раз`.
+- Карточка мероприятия: цветовая полоска категории, progress bar мест, погода в день события (`WEATHER_API_KEY`), блок «⚡ Быстрый взгляд».
+- Дайджест: «Афиша приключений» + сезонное интро; пустой период — «Тишина в Ланде Ооо…».
+- Split-bill: шкала сбора `████░░░░ 1500/3000 ₽` + чек-лист оплат ✅/⏳.
+- Онбординг: при одобрении заявки — текст `🎉🗺️ Дверь открыта!` (без стикера).
+- Мастер событий: прогресс `Шаг 7/12 · 📍 Маршрут`, превью с кнопкой `🗺️ Публикуем!`.
+- Быстрые шаблоны в `/menu`: спорт, язык, еда, кино, астрономия, лекция, картинг, кооп на ПК, книжный клуб, квиз, настолки, прогулка.
+- Категории: единые бейджи (🎲 Настолки, 📚 Книги, 🚶 Прогулки, 🍽 Еда, 🧠 Квиз).
+- Статусы карточки: 🔥 скоро, ✅ набор открыт, ⏳ резерв, 🚫 мест нет.
+- Мастера поддерживают «↩️ Назад» на ключевых шагах.
 
 ### Важные детали поведения
 - `/pending_intro` — единая команда контроля «Рассказа о себе»: показывает pending-участников (с кнопками отметки) и сводный статус по всем актуальным участникам группы.
@@ -262,27 +272,34 @@ Telegram-бот для приватного сообщества: меропри
 
 ## Переменные окружения
 
-Минимально необходимые:
+Шаблон: `.env.example`. Для Docker Compose также нужен `POSTGRES_PASSWORD`.
+
+### Обязательные
 - `BOT_TOKEN`
 - `GROUP_ID`
-- `DATABASE_URL` (или `PGHOST`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`)
+- `POSTGRES_PASSWORD` (при деплое через Docker Compose)
+- `DATABASE_URL` (или `PGHOST` / `PGUSER` / `PGPASSWORD` / `PGDATABASE`)
 
-Обычно также нужны:
+### Обычно нужны
 - `OWNER_ID`
-- `OWNER_CONTACT` (опционально: `@username`, HTTPS-ссылка или текст контакта владельца для сообщения об одобрении заявки; `@username`/HTTPS-ссылка отображаются как кликабельный видимый контакт, управляющие символы очищаются перед HTML-рендерингом)
 - `ADMIN_IDS` (через запятую)
-- `TIMEZONE` (по умолчанию `Europe/Moscow`)
-- `WEATHER_API_KEY` (опционально)
+- `OWNER_CONTACT` — `@username`, HTTPS-ссылка или текст; в одобрении заявки отображается как кликабельный контакт
+- `ENV=production`
+- `TIMEZONE` (по умолчанию `Europe/Moscow`; для VDS в Финляндии — `Europe/Helsinki`)
+- `AUTO_INIT_DB=1` — создать/проверить схему при старте
 
-Новые/важные для производительности:
-- `DB_POOL_MAX_SIZE` — размер пула PostgreSQL (по умолчанию `5`, для VDS 2 GB RAM).
-- Погодный HTTP-клиент переиспользует `aiohttp.ClientSession`; зависимость `aiohttp` закреплена на `>=3.13.4`, чтобы закрыть известные DoS/header parser уязвимости старых версий.
+### Опциональные
+- `WEATHER_API_KEY` — OpenWeatherMap; погода при создании события и в день мероприятия
+- `DONATION_SBERBANK_URL`, `DONATION_TBANK_URL` — ссылки для `/donate`
+- `OUTSIDER_ALLOWED_COMMANDS` — по умолчанию `start,donate`
+- `DB_POOL_MIN_SIZE`, `DB_POOL_MAX_SIZE` — пул PostgreSQL (по умолчанию 1/5, оптимально для 2 ГиБ RAM)
+- `DIGEST_DAY_OF_WEEK`, `DIGEST_HOUR` — расписание weekly digest
+- Лимиты и списки команд — см. `config.py`
 
-Новые runtime-параметры для погоды (задаются в коде, при необходимости можно вынести в env):
-- `WEATHER_CACHE_TTL_SECONDS = 300` (TTL кеша погоды),
-- `WEATHER_RATE_LIMIT_SECONDS = 2` (минимальный интервал запросов на одинаковый ключ).
-
-Дополнительные параметры лимитов/списков команд читаются из `config.py` с безопасными default-значениями.
+### Производительность и безопасность
+- `aiohttp>=3.13.4` — закрыты известные DoS/header parser уязвимости
+- Погодный клиент: TTL-кеш 300 с, rate-limit 2 с на ключ (задано в `bot/utils/weather.py`)
+- PostgreSQL на VDS: тюнинг в `deploy/postgresql.vds.conf`, подключается через `docker-compose.yml`
 
 ---
 
@@ -321,7 +338,7 @@ python -m compileall -q bot tests
 ## Безопасность и эксплуатационные практики
 
 - Не храните ключи/токены в репозитории; используйте секреты CI/CD и env-переменные.
-- Для YDB используйте параметризованные запросы и IAM сервисного аккаунта.
+- Для PostgreSQL используйте параметризованные запросы через asyncpg pool.
 - Ограничения команд и ролей централизованы в `middleware/command_access.py` и `config.py`.
 - При изменении команд/доступов синхронизируйте:
   1) `/help` тексты,  
@@ -332,25 +349,38 @@ python -m compileall -q bot tests
 
 ## Что обновилось в последних изменениях
 
-- `/menu` открывает визуальный Control Center с разделами 🎉 События, 🧾 Деньги, 🔔 Уведомления, 🤝 Комьюнити, быстрыми сценариями мероприятий и красивыми карточками действий.
-- Мероприятия перед публикацией проходят мини-превью; split-bill карточки получили шкалу оплат ✅/⏳.
-- `/random_pairs` публикует общую карточку пар в выбранную группу/подгруппу и больше не рассылает ЛС участникам.
-- `/send_event_card` отправляет короткое сообщение со ссылкой на основную карточку мероприятия вместо повторной интерактивной карточки.
-- `/health` удалена как дубль; быстрый чек работоспособности — `/status`.
-- `/my_digest` формирует ссылки на основные карточки мероприятий так же, как общий `/digest`.
-- Карточки split bill показывают `ID` чека; `/split_bill_add` резолвит `@username` через БД и fallback по approved members.
-- В карточках и списках событий явно показывается `ID` мероприятия (удобно для админских/legacy-команд).
-- В `/split_bill` добавлен выбор источника участников кнопками по актуальным мероприятиям.
-- В `/split_bill` добавлен выбор подгруппы (topic), куда публикуется карточка чека.
-- В `/find_events` исправлено сравнение datetime (naive vs aware).
+- **VDS-деплой:** Docker Compose + PostgreSQL 16, polling, тюнинг PG для 2 ГиБ RAM, лимиты памяти контейнеров.
+- **Удалён legacy:** YDB, Cloud Functions/webhook, `dynamic_handler.py`, codegen из YDB.
+- **Брендинг:** `BRAND_VOICE` / `SEASON_COPY` в `design.py`; приключенческий тон в меню, онбординге, мастерах, дайджесте.
+- **`/donate`:** кнопки-ссылки на сборы Сбербанка и Т-Банка.
+- **Карточки:** цветовая полоска категории, progress bar мест, погода в день события, сезонная шапка меню.
+- **Split-bill:** шкала сбора средств + чек-лист оплат.
+- **Участие:** кнопки «В путь!» / «В резерве» / «В другой раз».
+- **Онбординг:** при одобрении — приветственный текст с эмодзи (без стикера).
+- Документация по настройке сервера: `deploy/VDS_SETUP.md`.
 
 ---
 
 ## Визуальный стиль
 
-- Карточки строятся через общий дизайн-модуль `bot/utils/design.py`: единые заголовки, секции, CTA и текстовые progress bar.
-- Карточка мероприятия содержит блок «⚡ Быстрый взгляд» с местами, стоимостью и карпулингом, чтобы участник быстрее понял статус без чтения всей карточки.
-- Для новых сценариев рекомендуется сначала добавлять визуальные primitives в `bot/utils/design.py`, а затем переиспользовать их в handlers/texts.
+Все пользовательские тексты и карточки строятся через `bot/utils/design.py`:
+
+| Словарь / функция | Назначение |
+|-------------------|------------|
+| `BRAND_VOICE` | Фразы бота: меню, онбординг, участие, статусы |
+| `SEASON_COPY` | Сезонные слоганы и интро дайджеста |
+| `WIZARD_PROMPTS` | Тексты шагов мастера создания события |
+| `brand_voice(key)` | Получить фразу по ключу |
+| `season_copy(key)` | Сезонный текст (tagline, digest_intro) |
+| `category_accent_strip()` | Цветовая полоска категории на карточке |
+| `card_progress_bar()` | Текстовая шкала прогресса |
+| `money_collection_line()` | Шкала сбора денег в split-bill |
+
+**Правило для разработчиков:** новые пользовательские фразы добавлять в `BRAND_VOICE` / `WIZARD_PROMPTS`, а не хардкодить в handlers.
+
+Карточка мероприятия: блок «⚡ Быстрый взгляд», погода в день события (`WEATHER_API_KEY`), CTA «Готов к приключению?».
+
+Split-bill: блоки «Сбор средств» и «Чек-лист оплат».
 
 ---
 
@@ -358,7 +388,7 @@ python -m compileall -q bot tests
 
 - Минимальная версия `aiohttp` — `3.13.4`: это закрывает известные проблемы с multipart DoS, zip bomb DoS и обработкой небезопасных response headers в старых версиях.
 - Контакт владельца рендерится через единый helper, который экранирует HTML и удаляет управляющие символы из env-значений.
-- Для production используйте секреты/переменные окружения для токенов и YDB credentials; не коммитьте реальные значения в `.env`.
+- Для production используйте секреты/переменные окружения для токенов и `POSTGRES_PASSWORD`; не коммитьте реальные значения в `.env`.
 
 ---
 
@@ -378,6 +408,10 @@ docker compose logs -f bot
 
 PostgreSQL слушает только внутреннюю docker-сеть. Бот не открывает входящие HTTP-порты.
 
+Тюнинг PostgreSQL для 2 ГиБ RAM: `deploy/postgresql.vds.conf` (монтируется в контейнер). Параметры: `shared_buffers=128MB`, `max_connections=20` и др. — не повышайте `shared_buffers` до 256 МБ без нагрузочного теста.
+
+Подробная пошаговая инструкция: **`deploy/VDS_SETUP.md`**.
+
 ### Резервное копирование
 
 ```bash
@@ -390,29 +424,14 @@ PostgreSQL слушает только внутреннюю docker-сеть. Б�
 
 Пример unit-файла: `deploy/bot-adventure-time.service` (запускает `docker compose up -d` из `/opt/bot_adventure_time`).
 
----
-
-## Legacy: CI/CD SourceCraft + Yandex Cloud Functions
-
-Устаревший путь деплоя. Для VDS используйте Docker Compose выше.
-
-- Entry point функции: `dynamic_handler.handler`.
-- Источник сборки: корень репозитория.
-- ENV прокидываются через pipeline/секреты.
-- Для доступа к YDB в Cloud Functions предпочтительно использовать сервисный аккаунт функции.
-
-Полезные ссылки:
-- SourceCraft CI/CD: https://sourcecraft.dev/portal/docs/ru/sourcecraft/concepts/ci-cd
-- Yandex Cloud Functions: https://yandex.cloud/ru/docs/functions/
-- Документация YDB: https://ydb.tech/docs/ru/?version=v25.3
-- Quickstart Managed YDB: https://yandex.cloud/ru/docs/ydb/quickstart
+Подробная инструкция: `deploy/VDS_SETUP.md`.
 
 ---
 
 ## Принципы внесения изменений
 
 1. Не ломать обратную совместимость команд без явной миграции.
-2. Все SQL/YQL-запросы — параметризованные.
+2. Все SQL-запросы — параметризованные.
 3. Пользовательский ввод в HTML-сообщениях — экранировать.
 4. Внешние HTTP-вызовы — с timeout и exception handling.
 5. В пошаговых FSM-командах в ЛС промежуточные сообщения бота удаляются перед следующим шагом/итогом, а итоговые сообщения и обычные меню/карточки не помечаются на удаление.
@@ -455,10 +474,10 @@ PostgreSQL слушает только внутреннюю docker-сеть. Б�
 - `p95` — задержка "на хвосте" для 5% самых медленных запросов.
 - `p99` — почти worst-case, хороший индикатор деградации под нагрузкой.
 
-Рекомендации под 200+ пользователей:
-1. Прогнать стресс-тест (200/300/500 одновременных пользователей).
-2. Снять `p50/p95/p99` по update и YDB.
-3. Подобрать `DB_POOL_MAX_SIZE` по фактической утилизации и latency.
+Рекомендации под нагрузкой:
+1. Прогнать стресс-тест при росте аудитории.
+2. Снять `p50/p95/p99` по update и PostgreSQL-запросам.
+3. Подобрать `DB_POOL_MAX_SIZE` по фактической latency (по умолчанию 5 для 2 ГиБ RAM).
 
 ## Troubleshooting
 

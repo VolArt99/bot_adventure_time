@@ -19,6 +19,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.utils.callbacks import finalize_callback
 from bot.utils.telegram_errors import safe_callback_answer
 from bot.utils.roles import is_admin_or_owner
+from bot.utils.design import brand_voice
 from bot.filters.approved_member import approved_member_callback_only
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 
@@ -191,7 +192,7 @@ async def join_event(callback: CallbackQuery):
         await finalize_callback(callback, "Вы уже записаны", show_alert=True)
         return
     await add_participant(event_id, user_id, "going")
-    await safe_callback_answer(callback, "Вы записаны на мероприятие!")
+    await safe_callback_answer(callback, brand_voice("participation_join"))
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
     )
@@ -219,7 +220,7 @@ async def waitlist_event(callback: CallbackQuery):
         await finalize_callback(callback, "Вы уже в резерве", show_alert=True)
         return
     await add_participant(event_id, user_id, "waitlist")
-    await safe_callback_answer(callback, "Вы добавлены в резерв")
+    await safe_callback_answer(callback, brand_voice("participation_waitlist"))
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
     )
@@ -398,7 +399,7 @@ async def decline_event(callback: CallbackQuery):
             )
         except Exception as exc:
             logger.warning("Не удалось уведомить участника из резерва user_id=%s event_id=%s: %s", moved_user, event_id, exc)
-    await safe_callback_answer(callback, "Вы отказались от участия")
+    await safe_callback_answer(callback, brand_voice("participation_decline"))
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
     )

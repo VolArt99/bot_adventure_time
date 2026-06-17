@@ -1,8 +1,5 @@
 # точка входа, инициализация бота, диспетчера, планировщика
 
-import json
-import base64
-
 import asyncio
 import logging
 import traceback
@@ -26,11 +23,11 @@ import bot.handlers.split_bill_feature.handlers as split_bill
 from bot.utils.scheduler import restore_jobs, start_scheduler, schedule_digest
 from bot.fsm_storage_pg import PgStorage
 from bot.config import GROUP_ID
-from bot.init_flags import should_run_schema_init, should_run_schema_init_webhook
+from bot.init_flags import should_run_schema_init
 from bot.utils.helpers import build_owner_contact_html
 from bot.utils.telegram_errors import is_benign_telegram_error
 
-from aiogram.types import BotCommand, BotCommandScopeDefault, Update
+from aiogram.types import BotCommand, BotCommandScopeDefault
 from bot.commands import COMMAND_SPECS
 
 USER_COMMANDS = [
@@ -183,8 +180,7 @@ async def ensure_initialized(*, for_polling: bool = False) -> None:
         if not _is_initialized:
             logger.info("Инициализация бота...")
             validate_runtime_config()
-            run_schema_init = should_run_schema_init() if for_polling else should_run_schema_init_webhook()
-            if run_schema_init:
+            if should_run_schema_init():
                 await init_db()
                 logger.info("Схема БД проверена/инициализирована")
             else:
@@ -203,42 +199,6 @@ async def ensure_initialized(*, for_polling: bool = False) -> None:
             logger.info("Планировщик, напоминания и weekly digest восстановлены")
             _polling_initialized = True
 
-async def handler(event: dict, context):
-    body = event.get("body")
-    if body is None or body == "":
-        # При открытии URL функции в браузере (GET) тело обычно пустое — это не ошибка.
-        logger.info("Пустое тело запроса (healthcheck/ручной вызов)")
-        return {"statusCode": 200, "body": "OK"}
-
-    if event.get("isBase64Encoded"):
-        body = base64.b64decode(body).decode("utf-8")
-    elif isinstance(body, bytes):
-        body = body.decode("utf-8")
-
-    if not isinstance(body, str):
-        logger.warning("Некорректный тип body: %s", type(body).__name__)
-        return {"statusCode": 400, "body": "Request body must be a string"}
-
-    try:
-        update_data = json.loads(body)
-    except json.JSONDecodeError:
-        logger.exception("Не удалось распарсить JSON тела запроса")
-        return {"statusCode": 400, "body": "Invalid JSON in request body"}
-
-    await ensure_initialized(for_polling=False)
-
-    try:
-        await dp.feed_update(
-            bot,
-            Update.model_validate(update_data),
-        )
-    except Exception:
-        logger.exception("Не удалось обработать update")
-        return {"statusCode": 400, "body": "Bad update payload"}
-
-    return {"statusCode": 200, "body": ""}
-
-    
 async def main():
     logger.info("Запуск бота...")
     await ensure_initialized(for_polling=True)

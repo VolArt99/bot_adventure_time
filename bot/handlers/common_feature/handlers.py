@@ -11,6 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from bot.utils.callbacks import finalize_callback
 from bot.utils.helpers import build_owner_contact_html
+from bot.utils.design import brand_voice
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 from bot.utils.roles import is_admin_or_owner as has_admin_or_owner, is_owner
 
@@ -39,6 +40,7 @@ from bot.database import (
 from bot.filters.admin import admin_only
 from bot.filters.command_access import restricted_command
 from bot.keyboards import (
+    donation_keyboard,
     intro_status_keyboard,
     main_menu_keyboard,
     menu_section_keyboard,
@@ -53,6 +55,8 @@ from .views import (
     build_approval_message,
     build_approved_member_start_text,
     build_command_action_text,
+    build_donation_text,
+    build_donation_unavailable_text,
     build_group_rules_text,
     build_help_text,
     build_main_menu_text,
@@ -284,6 +288,19 @@ async def intro_toggle(callback: CallbackQuery):
     await update_intro_status(user_id, new_status)
     await finalize_callback(callback, f"Статус: {new_status}")
 
+@router.message(Command("donate"))
+async def cmd_donate(message: Message):
+    keyboard = donation_keyboard()
+    if not keyboard:
+        await message.answer(build_donation_unavailable_text())
+        return
+    await message.answer(
+        build_donation_text(),
+        parse_mode="HTML",
+        reply_markup=keyboard,
+    )
+
+
 @router.message(Command("menu"))
 async def cmd_menu(message: Message):
     is_admin_or_owner = has_admin_or_owner(message.from_user.id)
@@ -308,6 +325,20 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
     action = callback.data.removeprefix("menu_action_")
     user_id = callback.from_user.id
     is_admin_or_owner = has_admin_or_owner(user_id)
+
+    if action == "donate":
+        keyboard = donation_keyboard()
+        if not keyboard:
+            await callback.message.answer(build_donation_unavailable_text())
+            await finalize_callback(callback, "Недоступно")
+            return
+        await callback.message.answer(
+            build_donation_text(),
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+        await finalize_callback(callback, "Открыто")
+        return
 
     if action == "create_event":
         from bot.handlers.event_scenarios.create import start_create_event_wizard
@@ -568,7 +599,9 @@ async def cmd_usage_stats(message: Message):
 
 @router.message(Command("status"))
 async def cmd_status(message: Message):
-    await message.answer("✅ Бот работает. Для списка возможностей используйте /help.")
+    from bot.utils.design import brand_voice
+
+    await message.answer(brand_voice("status_online"))
 
 
 @router.message(Command("debug_info"))
@@ -656,7 +689,7 @@ async def cancel_create(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await finalize_callback(
         callback,
-        "Создание мероприятия отменено",
+        brand_voice("wizard_cancel"),
         delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
         show_alert=True,
     )

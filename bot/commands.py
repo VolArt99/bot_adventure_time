@@ -30,6 +30,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec("help", "help", "Подробная справка по ролям и сценариям.", "base", CommandKind.ACTION),
     CommandSpec("menu", "menu", "Главное кнопочное меню.", "base", CommandKind.ACTION),
     CommandSpec("status", "status", "Проверить, что бот онлайн.", "base", CommandKind.ACTION),
+    CommandSpec("donate", "donate", "Поддержать работу бота — ссылки на сборы.", "base", CommandKind.ACTION),
     CommandSpec("create_event", "create_event", "Запустить мастер создания мероприятия.", "events", CommandKind.ACTION),
     CommandSpec("my_events", "my_events", "Открыть список ваших мероприятий.", "events", CommandKind.ACTION),
     CommandSpec("find_events", "find_events", "Поиск активных мероприятий. Пример: <code>/find_events квиз</code>", "events", CommandKind.HELP, "/find_events &lt;текст&gt;"),

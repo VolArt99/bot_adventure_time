@@ -3,6 +3,7 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from bot.config import DONATION_SBERBANK_URL, DONATION_TBANK_URL
 from bot.constants import category_badge
 
 
@@ -19,10 +20,10 @@ def event_actions(event_id: int, carpool_enabled: bool = False) -> InlineKeyboar
     """Компактные CTA-кнопки карточки мероприятия."""
     rows = [
         [
-            InlineKeyboardButton(text="✅ Пойду", callback_data=f"join_{event_id}"),
-            InlineKeyboardButton(text="⏳ Резерв", callback_data=f"waitlist_{event_id}"),
+            InlineKeyboardButton(text="✅ В путь!", callback_data=f"join_{event_id}"),
+            InlineKeyboardButton(text="⏳ В резерве", callback_data=f"waitlist_{event_id}"),
         ],
-        [InlineKeyboardButton(text="❌ Отказаться", callback_data=f"decline_{event_id}")],
+        [InlineKeyboardButton(text="❌ В другой раз", callback_data=f"decline_{event_id}")],
     ]
     if carpool_enabled:
         rows.append(
@@ -79,7 +80,7 @@ def event_preview_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура подтверждения мини-превью мероприятия."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🚀 Опубликовать", callback_data="event_preview_publish")],
+            [InlineKeyboardButton(text="🗺️ Публикуем!", callback_data="event_preview_publish")],
             [InlineKeyboardButton(text="↩️ К категориям", callback_data="event_back")],
             [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_create")],
         ]
@@ -117,6 +118,18 @@ def quick_event_templates_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🏠 В события", callback_data="menu_events")],
         ]
     )
+
+
+def donation_keyboard() -> InlineKeyboardMarkup | None:
+    """Кнопки-ссылки на сборы Сбербанка и Т-Банка."""
+    rows: list[list[InlineKeyboardButton]] = []
+    if DONATION_SBERBANK_URL:
+        rows.append([InlineKeyboardButton(text="💚 Сбор в Сбербанке", url=DONATION_SBERBANK_URL)])
+    if DONATION_TBANK_URL:
+        rows.append([InlineKeyboardButton(text="💛 Сбор в Т-Банке", url=DONATION_TBANK_URL)])
+    if not rows:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def start_menu_keyboard() -> InlineKeyboardMarkup:
@@ -172,6 +185,7 @@ def menu_section_keyboard(section: str, is_admin_or_owner: bool = False) -> Inli
         "help": [
             [InlineKeyboardButton(text="❓ /help", callback_data="menu_cmd_help")],
             [InlineKeyboardButton(text="✅ /status", callback_data="menu_cmd_status")],
+            [InlineKeyboardButton(text="☕ Поддержать бота", callback_data="menu_action_donate")],
         ],
         "money": [
             [InlineKeyboardButton(text="🧾 /split_bill", callback_data="menu_action_split_bill")],

@@ -14,7 +14,7 @@ if not BOT_TOKEN:
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 # ⚠️ ВАЖНО: GROUP_ID должен быть числом (например, -1001234567890)
-# Для получения ID группы отправьте боту команду /test_chat
+# Узнать ID группы: /debug_info (админ) или @userinfobot / @getidsbot
 GROUP_ID = int(os.getenv("GROUP_ID")) if os.getenv("GROUP_ID") else 0
 
 # ADMIN_IDS — список организаторов с расширенным доступом
@@ -23,9 +23,13 @@ OWNER_ID = int(os.getenv("OWNER_ID")) if os.getenv("OWNER_ID") else 0
 OWNER_CONTACT = os.getenv("OWNER_CONTACT", "").strip()
 OUTSIDER_ALLOWED_COMMANDS = {
     cmd.strip().lower()
-    for cmd in os.getenv("OUTSIDER_ALLOWED_COMMANDS", "start").split(",")
+    for cmd in os.getenv("OUTSIDER_ALLOWED_COMMANDS", "start,donate").split(",")
     if cmd.strip()
 }
+
+# Ссылки на сборы для /donate (кнопки в ЛС)
+DONATION_SBERBANK_URL = os.getenv("DONATION_SBERBANK_URL", "").strip()
+DONATION_TBANK_URL = os.getenv("DONATION_TBANK_URL", "").strip()
 
 # Дневные лимиты по отправке команд
 ADMIN_DAILY_COMMAND_LIMIT = int(os.getenv("ADMIN_DAILY_COMMAND_LIMIT", "50"))

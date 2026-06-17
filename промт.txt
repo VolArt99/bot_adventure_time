@@ -1,230 +1,190 @@
 # Промт проекта: Bot Adventure Time (детализированный)
 
-Этот документ — рабочий контекст для разработчика/агента, который вносит изменения в код бота.
-Цель: чтобы по одному файлу можно было быстро понять архитектуру, правила и ожидания по качеству.
+Рабочий контекст для разработчика/агента. Цель: быстро понять архитектуру, правила и ожидания по качеству.
 
 ---
 
 ## Роль и цель
 
 Ты — senior Python/aiogram инженер, который:
-1. Поддерживает стабильность прод-бота.
-2. Вносит улучшения без поломки текущих пользовательских сценариев.
-3. Сохраняет чистую архитектуру и документацию в актуальном состоянии.
+1. Поддерживает стабильность прод-бота на VDS (Docker Compose + PostgreSQL).
+2. Вносит улучшения без поломки пользовательских сценариев.
+3. Сохраняет документацию в актуальном состоянии.
 
-Главный результат любой задачи:
+Definition of Done:
 - код работает;
-- сценарии не ломаются;
-- изменения понятны следующему разработчику.
-- README и этот промт синхронизированы с фактическим поведением.
+- `pytest -q` зелёный;
+- обновлены `README.md`, `промт.txt` и при необходимости `deploy/VDS_SETUP.md`;
+- пользовательские тексты — через `bot/utils/design.py`, не хардкод в handlers.
 
 ---
 
 ## Продуктовый контекст
 
-Бот предназначен для приватного сообщества в Telegram (группа с Topics).
-Основные бизнес-задачи:
-- организация офлайн/онлайн мероприятий;
-- автоматизация согласования участников;
-- снижение нагрузки на админов;
-- рост вовлечённости через дайджесты и random-механики.
+Бот для приватного Telegram-сообщества (супергруппа с Topics / форум).
+Задачи: мероприятия, участие, напоминания, дайджесты, random 1:1, онбординг, split bill, пожертвования на поддержку бота.
 
-### Основные пользовательские потоки
-1. Пользователь проходит `/start` и онбординг.
-2. Одобренный участник создаёт событие (`/create_event`) в ЛС.
-3. Бот публикует карточку в нужную тему группы.
-4. Участники кликают кнопки участия (иду/резерв/отказ).
-5. Бот рассылает напоминания перед началом.
-6. Админы/owner получают статистику и служебные отчёты.
+### Пользовательские потоки
+1. `/start` → онбординг → одобрение владельцем → вход в группу.
+2. `/create_event` в ЛС → превью → публикация карточки в тему.
+3. Участники: `✅ В путь!` / `⏳ В резерве` / `❌ В другой раз`.
+4. Напоминания (APScheduler) + weekly digest.
+5. `/donate` — ссылки на сборы (доступно и не-участникам).
+6. Админы: отчёты, темы, random-пары, sync members.
 
 ---
 
-## Технологии и инфраструктура
+## Технологии
+
 - Python 3.10+
 - aiogram 3.x
-- YDB
+- PostgreSQL 16 (asyncpg pool)
 - APScheduler
-- Cloud deployment: Yandex Cloud Functions
-- CI/CD: SourceCraft
+- Docker Compose, long polling (`python -m bot.main`)
+- Опционально: OpenWeatherMap (`WEATHER_API_KEY`)
 
-Внешние документы (для сверки решений):
-1. SourceCraft CI/CD: https://sourcecraft.dev/portal/docs/ru/sourcecraft/concepts/ci-cd
-2. Yandex Cloud Functions: https://yandex.cloud/ru/docs/functions/
-3. YDB docs: https://ydb.tech/docs/ru/?version=v25.3
-4. Managed YDB quickstart: https://yandex.cloud/ru/docs/ydb/quickstart
+**Не используется:** YDB, Cloud Functions, webhook entrypoint.
 
 ---
 
-## Карта репозитория и назначение элементов
+## Карта репозитория
 
-### 4.1 Корень
-- `dynamic_handler.py` — entrypoint для Cloud Functions.
-- `requirements.txt` — зависимости для деплоя.
-- `README.md` — обзор проекта, запуск, команды.
-- `промт.txt` — текущий документ (policy + контекст).
-- `tests/` — автоматические проверки.
+### Корень
+- `docker-compose.yml`, `Dockerfile` — VDS-деплой (лимиты RAM, тюнинг PG)
+- `deploy/` — `deploy.sh`, `backup_db.sh`, `postgresql.vds.conf`, `VDS_SETUP.md`, systemd unit
+- `.env.example` — шаблон env
+- `README.md`, `промт.txt` — документация
+- `tests/` — pytest
 
-### 4.2 Папка `bot/`
+### `bot/`
+- `main.py` — polling, lazy init, error handler → owner
+- `config.py` — env, роли, лимиты, donate URLs
+- `commands.py` — реестр `COMMAND_SPECS`
+- `database.py` → `database_pg.py` — вся работа с БД
+- `db_pool.py` — asyncpg pool
+- `fsm_storage_pg.py` — FSM в таблице `fsm_states`
+- `texts.py` — карточки событий, дайджесты, напоминания
+- `keyboards.py` — inline-клавиатуры
+- `utils/design.py` — **BRAND_VOICE**, **SEASON_COPY**, **WIZARD_PROMPTS**, визуальные helpers
 
-#### Ядро
-- `main.py`:
-  - создание `Bot`, `Dispatcher`, подключение storage/middleware/router;
-  - lazy init БД/планировщика;
-  - webhook handler и polling цикл;
-  - глобальный error handler + уведомления владельцу с троттлингом.
-- `config.py`:
-  - env-конфигурация;
-  - role-based ограничения;
-  - лимиты и настройки расписаний.
-- `database_ydb.py`:
-  - schema init;
-  - операции по таблицам;
-  - агрегации/отчёты.
-- `database.py`:
-  - импорт-адаптер (`from bot.database_ydb import *`).
+### Handlers
+- `common_feature/` — start, help, menu, status, donate, onboarding, approve/reject
+- `event_scenarios/` — FSM create/edit/category/carpool
+- `participation.py` — join/waitlist/decline, carpool
+- `split_bill_feature/` — split bill FSM + карточка
+- `digest.py`, `subscriptions.py`, `my_events.py`, `roadmap.py`, `admin.py`
 
-#### FSM и сообщения
-- `fsm_storage_ydb.py` — хранение состояния FSM в YDB.
-- `texts.py` — генерация текстов карточек/дайджестов/напоминаний.
-- `keyboards.py` — inline/reply клавиатуры.
-- `constants.py` — доменные константы.
-
-#### Обработчики (`handlers/`)
-- `common.py` — фасад обратной совместимости для common-функционала.
-- `common_feature/handlers.py` — базовые команды, onboarding, owner approve/reject, help/status/debug.
-- `common_feature/services.py` — сервисные операции common-модуля.
-- `common_feature/views.py` — формирование крупных текстов (help и др.).
-- `events.py` — сборка подроутеров сценариев событий.
-- `event_scenarios/*` — FSM шаги create/edit/category/carpool/cancel.
-- `participation.py` — callback-логика по участию в мероприятиях (поэтапно переводится на единый helper завершения callback).
-- `digest.py`, `subscriptions.py`, `my_events.py`, `reminders.py` — профильные сценарии.
-- `roadmap.py` — my_stats/top/find_events/random optin/optout/pairs.
-- `split_bill.py` — фасад обратной совместимости для split bill.
-- `split_bill_feature/handlers.py` — сценарии разделения чека (командные + пошаговый FSM).
-- `split_bill_feature/services.py` — сервисная логика split bill (формат/обновление карточки и т.п.).
-- `split_bill_feature/views.py` — текстовые шаблоны split bill.
-- `admin.py` — админские отчёты/утилиты.
-
-#### Cross-cutting
-- `middleware/command_access.py` — доступ по ролям + лимиты.
-- `middleware/topic_discoverer.py` — обновление метаданных тем.
-- `filters/*` — фильтры доступа/ролей.
-- `utils/*` — вспомогательные сервисы (scheduler/weather/pairing/links/helpers/topics).
+### Middleware / filters
+- `command_access.py` — роли и лимиты в ЛС
+- `topic_discoverer.py` — автообнаружение тем форума
+- `latency_metrics.py` — p50/p95/p99
 
 ---
 
-## Текущий функциональный минимум (must-have)
+## Брендинг и тексты
 
-1. `/start` и онбординг.
-2. `/create_event` в ЛС с публикацией в группу.
-3. Inline-кнопки участия и резерв.
-4. Карпулинг в карточках событий.
-5. Напоминания до событий + восстановление после рестарта.
-6. Дайджесты (`/digest`, `/my_digest`) и подписки.
-7. Поиск/статистика (`/find_events`, `/my_stats`, `/top`).
-8. Random 1:1 (`/random_optin`, `/random_optout`, `/random_pairs`).
-9. Split bill (`/split_bill` и legacy-команды).
-10. Тех-алерты владельцу о необработанных ошибках (с антиспам-троттлингом).
+**Источник правды:** `bot/utils/design.py`
+
+- `BRAND_VOICE` — фразы бота (меню, онбординг, участие, статусы)
+- `SEASON_COPY` — сезонные слоганы (зима/весна/лето/осень)
+- `WIZARD_PROMPTS` — шаги мастера `/create_event`
+- `brand_voice(key)`, `season_copy(key)`, `wizard_prompt(key)`
+
+Тон: приключенческий (Adventure Time community), без персонажей мультсериала.
+
+При изменении UX:
+1. Обновить словари в `design.py`
+2. Синхронизировать `common_feature/views.py`, `texts.py`, help
+3. Обновить тесты в `tests/test_help_text_html.py`, `tests/test_texts.py`
 
 ---
 
-## Актуальные UX-детали команд
+## Must-have функционал
 
-- `/set_responsible`, `/add_participant_manual` и `/split_bill_add` принимают как `user_id`, так и `@username`; username нужно резолвить через БД и fallback по актуальным approved members.
-- `/send_event_card <event_id>` не дублирует интерактивную карточку: организатор/ответственный/админ отправляет короткое сообщение с ID, датой/местом/темой и ссылкой на основную карточку мероприятия. Основная карточка остаётся единственным сообщением, которое обновляют callback-кнопки участия.
-- `/digest` и `/my_digest` должны показывать ссылки на основные карточки мероприятий, если у события сохранён `message_id`.
-- `/random_pairs` после запуска админом предлагает выбрать группу/подгруппу и публикует общую карточку пар в выбранный topic; личные уведомления участникам о создании пар не отправляются.
-- В карточке split bill явно отображается `ID` чека, чтобы его можно было использовать в legacy-командах (`/split_bill_add`, `/split_bill_remove`).
-- `/pending_intro` и `/list_intro` должны отражать только актуальных участников группы; записи исключённых пользователей очищаются из локальной таблицы.
-- В пошаговых ЛС-сценариях (`/create_event`, `/split_bill`) промежуточные сообщения бота удаляются перед отправкой следующей подсказки или итогового ответа через `answer_private_intermediate`; итоговые ответы отправляются через `answer_private_final` и не помечаются на удаление.
-- Callback policy удаляет сообщения с кнопками только по явному `CALLBACK_DELETE_WIZARD_MESSAGE`; меню и карточки с `CALLBACK_KEEP_PUBLIC_MESSAGE` остаются на месте и могут редактироваться независимо от типа чата.
+1. Онбординг + approve/reject (текст `🎉🗺️ Дверь открыта!` при одобрении)
+2. `/create_event` + превью + публикация
+3. Участие: в путь / резерв / в другой раз
+4. Карпулинг
+5. Напоминания + restore после рестарта
+6. Дайджесты и подписки
+7. Random 1:1
+8. Split bill
+9. `/donate` (URL-кнопки Сбер / Т-Банк)
+10. Тех-алерты owner при необработанных ошибках
+
 ---
 
-## Правила разработки (обязательные)
+## Актуальные UX-детали
 
-1. **Не ломать совместимость** существующих команд без migration-плана.
-2. **Параметризовать запросы** к БД (никакой конкатенации пользовательского ввода).
-3. **Экранировать HTML** в пользовательских текстах/карточках.
-4. **Сетевые вызовы** делать с timeout + обработкой исключений.
-5. **Не дублировать бизнес-логику** между хендлерами — выносить в `utils`/shared.
-6. Любой нетривиальный сценарий закреплять тестом.
-7. Изменили UX/архитектуру → обновить `/help`, `/menu`/главное меню, единый дизайн-тон карточек, `README.md`, этот файл и тесты.
-8. Новые пользовательские команды по возможности дублируем кнопками в `/menu` и разделе «Все команды».
-9. В мастерах сохраняем прогресс-индикатор шагов; в карточках используем единые бейджи категорий и статусов.
-
-### Дополнение по безопасности
-8. Любые SQL-запросы с пользовательскими/внешними данными — только параметризованные.
-9. Не логировать секреты (token/key/content credentials) и полный payload ключей.
+- Кнопки карточки: `✅ В путь!`, `⏳ В резерве`, `❌ В другой раз`
+- Превью: кнопка `🗺️ Публикуем!`
+- `/menu`: сезонная шапка, слоган «Куда отправимся сегодня?»
+- Карточка: полоска категории, progress bar мест, погода в день события
+- Split-bill: `money_collection_line` + чек-лист ✅/⏳
+- `/donate` в разделе «Помощь» меню + команда; outsider: `start,donate`
+- `@username` в admin-командах — резолв через БД + approved members
+- `/send_event_card` — короткое сообщение со ссылкой, не дубль карточки
+- `/random_pairs` — общая карточка в topic, без ЛС участникам
+- FSM в ЛС: `answer_private_intermediate` / `answer_private_final`
+- Callback policy: `CALLBACK_DELETE_WIZARD_MESSAGE` только для wizard
 
 ---
 
 ## Роли и доступ
 
-- **Owner (`OWNER_ID`)**: полный доступ, в т.ч. owner-only команды.
-- **Admin (`ADMIN_IDS`)**: расширенный доступ, но по лимитам.
-- **Approved member**: пользовательские команды из allowlist.
-- **Outsider**: ограниченный набор до одобрения.
+- **Owner** — полный доступ
+- **Admin** — расширенный, с лимитами
+- **Approved member** — пользовательские команды
+- **Outsider** — `start`, `donate` (по умолчанию)
 
-Важно: доступ и лимиты централизованы в `middleware/command_access.py` + `config.py`.
-
----
-
-## Требования к качеству PR
-
-Каждый PR должен содержать:
-1. Короткое «что и зачем».
-2. Риски/ограничения (если есть).
-3. Список прогнанных проверок (команды + итог).
-4. Обновлённую документацию, если меняется поведение.
-
-Минимальные проверки перед merge:
-- `pytest -q`
-- при необходимости: локальные smoke-check сценариев (create_event, participation, split_bill).
+Центр: `middleware/command_access.py` + `config.py` + `bot/commands.py`
 
 ---
 
-## Шаблон мышления при изменениях
+## Правила разработки
 
-Перед кодом:
-1. Определи, какой пользовательский поток меняется.
-2. Проверь, где входная точка и где shared-логика.
-3. Убедись, что middleware/filters не сломают FSM-переходы.
-
-После кода:
-1. Прогони тесты.
-2. Пробеги глазами команды `/help`, `/menu`, быстрые сценарии, превью публикации и доступность по ролям.
-3. Проверь, что документация отражает фактическое поведение.
-
----
-
-## Частые ошибки и как их избегать
-
-1. **FSM «завис» после шага**:
-   - проверить перехватчики (`onboarding_guard`, middleware, state filters).
-2. **Бот не пишет в тему**:
-   - проверить права бота в группе и `message_thread_id`.
-3. **Нет данных в YDB**:
-   - проверить endpoint/database/IAM.
-4. **Команда недоступна пользователю**:
-   - проверить allowlist в `config.py` + role logic middleware.
-5. **После деплоя broke imports**:
-   - сверить entrypoint и source path в CI/CD.
+1. Не ломать совместимость команд без migration-плана.
+2. SQL только параметризованный (asyncpg).
+3. HTML — экранировать пользовательский ввод.
+4. HTTP — timeout + exception handling.
+5. Бизнес-логику не дублировать — shared/services/utils.
+6. Нетривиальные сценарии — тест.
+7. Изменил UX → `design.py` + help + README + промт + тесты.
+8. Новые фразы — в `BRAND_VOICE`, не в handlers.
+9. Не коммитить секреты (.env, токены).
 
 ---
 
-## Definition of Done
+## Деплой (VDS)
 
-Задача считается завершённой, когда:
-- поведение реализовано;
-- тесты зелёные;
-- backward compatibility сохранена (или описана миграция);
-- README и промт актуализированы;
-- release checklist выполнен: обновить help/menu + README + промт + тесты;
-- PR содержит понятное описание изменений.
+См. `deploy/VDS_SETUP.md` и раздел README «Деплой на VDS».
+
+Кратко:
+```bash
+cp .env.example .env
+# BOT_TOKEN, GROUP_ID, OWNER_ID, POSTGRES_PASSWORD, DONATION_* ...
+docker compose up -d --build
+```
+
+PostgreSQL: `deploy/postgresql.vds.conf`, лимит 768M. Бот: 512M.
 
 ---
 
-## Документация: источник правды
+## Частые ошибки
 
-- `README.md` и `промт.txt` — обязательные к поддержке документы.
-- Если вспомогательный документ дублирует команды/роли и устарел, его нужно удалить или обновить в рамках той же задачи.
+1. **FSM завис** — onboarding_guard, middleware, state filters
+2. **Не публикуется в тему** — права бота, `message_thread_id`, GROUP_ID
+3. **Нет данных в БД** — DATABASE_URL, postgres healthy, AUTO_INIT_DB
+4. **Команда недоступна** — allowlist, approved_member, лимиты
+5. **/donate без кнопок** — не заданы DONATION_SBERBANK_URL / DONATION_TBANK_URL
+6. **Тексты разъехались** — забыли обновить `design.py` и help
+
+---
+
+## Чек-лист PR
+
+- [ ] `pytest -q`
+- [ ] help/menu отражают изменения
+- [ ] `design.py` при новых фразах
+- [ ] README + промт (+ VDS_SETUP при деплое)
+- [ ] Описание PR: что / зачем / как проверено

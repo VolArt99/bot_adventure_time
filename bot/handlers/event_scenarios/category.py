@@ -10,6 +10,7 @@ from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 from bot.database import get_topic_name_by_thread_id
 from bot.texts import format_event_message
 from bot.utils.helpers import get_user_mention
+from bot.utils.design import brand_voice, wizard_prompt
 from .shared import CreateEvent, build_event_payload, event_step_prompt, finalize_event_creation
 
 router = Router(name=__name__)
@@ -83,7 +84,7 @@ async def back_to_category_groups(callback: CallbackQuery, state: FSMContext):
     await answer_private_intermediate(
         callback.message,
         state,
-        event_step_prompt(CreateEvent.category.state, "📂 Выберите группу категории:"),
+        event_step_prompt(CreateEvent.category.state, wizard_prompt("category_group")),
         reply_markup=category_groups_keyboard(EVENT_CATEGORY_GROUPS, back_callback="event_back"),
     )
     await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
@@ -118,9 +119,7 @@ async def finish_categories(callback: CallbackQuery, state: FSMContext):
         state,
         event_step_prompt(
             CreateEvent.preview.state,
-            "👀 <b>Мини-превью карточки</b>\n"
-            "Проверьте, как мероприятие будет выглядеть в группе. Если всё ок — публикуем.\n\n"
-            f"{preview_text}",
+            f"{brand_voice('event_preview_intro')}\n\n{preview_text}",
         ),
         reply_markup=event_preview_keyboard(),
         parse_mode="HTML",
@@ -142,4 +141,4 @@ async def publish_previewed_event(callback: CallbackQuery, state: FSMContext):
         category_value,
         creator_user_id=callback.from_user.id,
     )
-    await finalize_callback(callback, "Мероприятие опубликовано", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+    await finalize_callback(callback, brand_voice("event_created"), delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)

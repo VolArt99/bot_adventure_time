@@ -33,13 +33,14 @@ class HelpTextHtmlTests(unittest.TestCase):
 
         self.assertIn("/menu", text)
         self.assertIn("Описание кнопок", text)
-        self.assertIn("✅ Пойду", text)
+        self.assertIn("✅ В путь", text)
 
     def test_main_menu_text_and_sections_are_styled(self):
         menu_text = build_main_menu_text(is_admin_or_owner=True)
         section_text = build_menu_section_text("events", is_admin_or_owner=False)
 
         self.assertIn("Adventure Time Control Center", menu_text)
+        self.assertIn("Куда отправимся", menu_text)
         self.assertIn(CARD_DIVIDER, menu_text)
         self.assertIn("Что делает каждая кнопка", menu_text)
         self.assertIn("🟣🎉 <b>События</b>", menu_text)
@@ -61,7 +62,7 @@ class HelpTextHtmlTests(unittest.TestCase):
             username="bad<tag>",
         )
 
-        self.assertIn("напишите владельцу:", approval)
+        self.assertIn("Дверь открыта", approval)
         self.assertIn("https://t.me/+invite&amp;x=&lt;tag&gt;", approval)
         self.assertIn("@source_owner", approval)
         self.assertIn("Шаг 1/3 · Старт", build_onboarding_welcome_text())
@@ -93,8 +94,8 @@ class HelpTextHtmlTests(unittest.TestCase):
         keyboard = event_actions(42, carpool_enabled=True)
         rows = [[button.text for button in row] for row in keyboard.inline_keyboard]
 
-        self.assertEqual(rows[0], ["✅ Пойду", "⏳ Резерв"])
-        self.assertEqual(rows[1], ["❌ Отказаться"])
+        self.assertEqual(rows[0], ["✅ В путь!", "⏳ В резерве"])
+        self.assertEqual(rows[1], ["❌ В другой раз"])
         self.assertEqual(rows[2], ["🚗 Водитель", "👥 Попутка"])
         self.assertEqual(rows[-1], ["🗑 Удалить"])
 

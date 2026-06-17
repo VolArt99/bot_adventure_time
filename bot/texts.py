@@ -5,7 +5,21 @@ import pytz
 
 from bot.config import TIMEZONE
 from bot.constants import EVENT_CATEGORY_GROUPS, category_badge
-from bot.utils.design import BRAND, EVENT_CATEGORY_TONES, card_cta, card_header, card_progress_bar, card_section, compact_cta
+from bot.utils.design import (
+    BRAND,
+    EVENT_CATEGORY_TONES,
+    brand_voice,
+    card_cta,
+    card_header,
+    card_progress_bar,
+    card_section,
+    category_accent_strip,
+    compact_cta,
+    primary_category_group,
+    season_copy,
+    seasonal_card_divider,
+    seasonal_menu_icon,
+)
 from bot.utils.event_links import (
     build_2gis_maps_link,
     build_google_calendar_link,
@@ -15,19 +29,6 @@ from bot.utils.event_links import (
 )
 
 TZ = pytz.timezone(TIMEZONE)
-
-ONBOARDING_WELCOME_TEXT = (
-    "Привет! 👋\n\n"
-    "Это вход в закрытую группу. Нажми кнопку «Старт», чтобы продолжить."
-)
-
-
-APPROVED_MEMBER_START_TEXT = (
-    "Привет! 👋 Рад снова видеть тебя в Adventure Time.\n\n"
-    "Ты уже участник группы, доступ открыт. Для действий, разделов и быстрых сценариев "
-    "запусти /menu или нажми кнопку ниже."
-)
-
 
 GROUP_RULES_TEXT = (
     "Прежде чем вступить в группу, пожалуйста, ознакомься с правилами и целями.\n\n"
@@ -163,6 +164,28 @@ def event_status_badges(event: Dict, going_count: int, waitlist_count: int, *, n
     return " · ".join(badges)
 
 
+async def _resolve_weather_line(event: Dict, event_dt: datetime) -> str | None:
+    """Погода: из БД или live-запрос в день мероприятия."""
+    if event.get("weather_info"):
+        return f"⛅ Погода: {escape(event['weather_info'])}"
+
+    if event_dt.date() != datetime.now(TZ).date():
+        return None
+
+    location = (event.get("location") or "").strip()
+    if not location:
+        return None
+
+    from bot.utils.weather import get_weather
+
+    weather = await get_weather(city=location)
+    if not weather:
+        return None
+
+    info = f"{weather['icon']} {weather['description']}, {weather['temp']}°C"
+    return f"⛅ Погода сегодня: {escape(info)}"
+
+
 async def format_event_message(
     event: Dict,
     going_list: List[int],
@@ -208,11 +231,7 @@ async def format_event_message(
         price_text = "💰 Бесплатно"
         price_summary = "бесплатно"
 
-    weather = (
-        f"⛅ Погода: {escape(event['weather_info'])}"
-        if event.get("weather_info")
-        else ""
-    )
+    weather = await _resolve_weather_line(event, dt)
     carpool = "🚗 Карпулинг включён" if event.get("carpool_enabled") else ""
 
     going_names = (
@@ -224,7 +243,11 @@ async def format_event_message(
 
     hero = f"📅 {date_str} в {time_str} · 📍 {location}"
     status_badges = event_status_badges(event, going_count, waitlist_count)
+    accent = category_accent_strip(event.get("category"))
+    group_key = primary_category_group(event.get("category"))
+    group_tone = EVENT_CATEGORY_TONES.get(group_key, "⚪")
     lines = [
+        f"{accent} <i>категория</i>",
         *card_header(BRAND["event"], title, status_badges),
         f"<b>{hero}</b>",
         f"🆔 ID: <code>{event['id']}</code>",
@@ -240,12 +263,13 @@ async def format_event_message(
         lines.append(f"👤 Организатор: {organizer_mention}")
     if responsible_mention:
         lines.append(f"🧩 Ответственный: {responsible_mention}")
-        
+
     if weather:
         lines.append(weather)
 
     quick_lines = [
         f"🎟 Места: {card_progress_bar(going_count, limit_int)} {going_count}/{limit_str}",
+        f"{group_tone} Категория: {escape(category_to_visual_badges(event.get('category')))}",
         f"💸 Стоимость: {escape(price_summary)}",
         f"🚗 Карпулинг: {'включён' if event.get('carpool_enabled') else 'нет'}",
     ]
@@ -307,7 +331,7 @@ async def format_event_message(
                     )
                     lines.append(f"   Пассажиры: {passengers}")
 
-    lines.extend(card_cta(compact_cta("Выберите CTA под карточкой", "Пойду · Резерв · Отказаться")))
+    lines.extend(card_cta(brand_voice("event_card_cta")))
     return "\n".join(lines)
 
 
@@ -315,7 +339,7 @@ def format_digest_text(
     events: List[Dict], usernames_dict: Dict[int, str], period: str = "week"
 ) -> str:
     if not events:
-        return "📅 На выбранный период мероприятий не запланировано."
+        return brand_voice("empty_digest")
 
     period_title = {
         "week": "на неделю",
@@ -323,7 +347,12 @@ def format_digest_text(
         "all": "за всё время",
     }.get(period, "на выбранный период")
 
-    lines = [f"<b>📅 Афиша {period_title}</b>\n"]
+    lines = [
+        f"<b>{seasonal_menu_icon()} {brand_voice('digest_title')} {period_title}</b>",
+        f"<i>{season_copy('digest_intro')}</i>",
+        seasonal_card_divider(),
+        "",
+    ]
     for e in events:
         dt = datetime.fromisoformat(e["date_time"]).astimezone(TZ)
         date_str = dt.strftime("%d.%m.%Y %H:%M")
