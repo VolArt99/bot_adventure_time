@@ -27,7 +27,7 @@ from bot.init_flags import should_run_schema_init
 from bot.utils.helpers import build_owner_contact_html
 from bot.utils.telegram_errors import is_benign_telegram_error
 
-from aiogram.types import BotCommand, BotCommandScopeDefault
+from aiogram.types import BotCommand, BotCommandScopeDefault, Update
 from bot.commands import COMMAND_SPECS
 
 USER_COMMANDS = [

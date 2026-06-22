@@ -28,9 +28,9 @@ def _resolve_database_url() -> str:
 
     host = os.getenv("PGHOST", "localhost")
     port = os.getenv("PGPORT", "5432")
-    user = os.getenv("PGUSER", "bot")
-    password = os.getenv("PGPASSWORD", "")
-    database = os.getenv("PGDATABASE", "adventure_time")
+    user = os.getenv("PGUSER") or os.getenv("POSTGRES_USER", "bot")
+    password = os.getenv("PGPASSWORD") or os.getenv("POSTGRES_PASSWORD", "")
+    database = os.getenv("PGDATABASE") or os.getenv("POSTGRES_DB", "adventure_time")
     if password:
         return f"postgresql://{user}:{password}@{host}:{port}/{database}"
     return f"postgresql://{user}@{host}:{port}/{database}"

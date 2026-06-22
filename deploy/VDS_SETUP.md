@@ -289,7 +289,7 @@ nano .env
 | `GROUP_ID` | §4.2 |
 | `OWNER_ID` | ваш Telegram user ID |
 | `ADMIN_IDS` | ID админов через запятую |
-| `POSTGRES_PASSWORD` | придумайте надёжный пароль |
+| `POSTGRES_PASSWORD` | придумайте надёжный пароль (без символа `$` — см. §10) |
 | `ENV` | `production` |
 | `TIMEZONE` | `Europe/Moscow` |
 
@@ -302,7 +302,22 @@ nano .env
 | `DONATION_SBERBANK_URL` / `DONATION_TBANK_URL` | ссылки для `/donate` |
 | `WEATHER_API_KEY` | OpenWeatherMap (опционально) |
 
-> `DATABASE_URL` подставляется в `docker-compose.yml` автоматически.
+> `DATABASE_URL` и `PGHOST`/`PGPASSWORD` для Docker **не нужны** — бот подключается к `postgres` через `env_file` и переменные в `docker-compose.yml`.
+
+**Пример минимального `.env` (строки без `#`):**
+
+```env
+BOT_TOKEN=...
+GROUP_ID=-100...
+OWNER_ID=...
+ADMIN_IDS=...
+POSTGRES_USER=bot
+POSTGRES_DB=adventure_time
+POSTGRES_PASSWORD=ваш_надёжный_пароль
+ENV=production
+TIMEZONE=Europe/Moscow
+AUTO_INIT_DB=1
+```
 
 ### 5.3. Первый запуск
 
@@ -484,6 +499,35 @@ sudo systemctl restart ssh.socket
 ### `/donate` без кнопок
 
 Задайте `DONATION_SBERBANK_URL` и `DONATION_TBANK_URL` в `.env`.
+
+### WARN: переменная `D5f6g` is not set (или похожая)
+
+**Причина:** в `POSTGRES_PASSWORD` есть символ **`$`**. Docker Compose воспринимает `$D5f6g` как имя переменной.
+
+**Решение:** смените пароль **без `$`**, только буквы/цифры/`-_`:
+
+```bash
+nano .env   # POSTGRES_PASSWORD=новый_пароль_без_доллара
+docker compose down
+docker compose up -d --build
+```
+
+Если PostgreSQL уже создавался со старым паролем — после смены пароля может понадобиться пересоздать том (удалит данные БД):
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+### Бот падает на `Update | None` в main.py
+
+**Причина:** старая версия кода без импорта `Update`. Обновите репозиторий и пересоберите:
+
+```bash
+cd /opt/bot_adventure_time
+git pull
+docker compose up -d --build
+```
 
 ---
 

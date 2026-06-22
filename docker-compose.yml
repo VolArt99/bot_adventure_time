@@ -2,10 +2,12 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-adventure_time}
       POSTGRES_USER: ${POSTGRES_USER:-bot}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # POSTGRES_PASSWORD — только из .env (env_file), чтобы $ в пароле не ломал compose
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/postgresql.vds.conf:/etc/postgresql/postgresql.conf:ro
@@ -26,7 +28,8 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-bot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-adventure_time}
+      PGHOST: postgres
+      PGPORT: 5432
       ENV: ${ENV:-production}
       AUTO_INIT_DB: ${AUTO_INIT_DB:-1}
     depends_on:
