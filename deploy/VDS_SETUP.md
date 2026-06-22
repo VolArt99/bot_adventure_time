@@ -457,6 +457,37 @@ docker compose down && docker compose up -d
 
 ## 10. Типичные проблемы
 
+### `Conflict: can't use getUpdates while webhook is active`
+
+**Причина:** у бота на серверах Telegram всё ещё включён **webhook** (старый деплой, тест, другой сервер).
+
+**Быстро снять webhook** (подставьте токен из `.env`):
+
+```bash
+curl -s "https://api.telegram.org/botВАШ_BOT_TOKEN/deleteWebhook?drop_pending_updates=true"
+```
+
+Ответ: `{"ok":true,...}`.
+
+Или из контейнера:
+
+```bash
+docker compose run --rm bot python -c "
+import asyncio, os
+from aiogram import Bot
+async def main():
+    b = Bot(os.environ['BOT_TOKEN'])
+    await b.delete_webhook(drop_pending_updates=True)
+    await b.session.close()
+    print('webhook deleted')
+asyncio.run(main())
+"
+```
+
+Затем: `docker compose restart bot`.
+
+В новых версиях кода webhook снимается автоматически при старте (`bot/main.py`).
+
 ### Бот не отвечает
 
 1. `docker compose ps` — `bot` в статусе `Up`?

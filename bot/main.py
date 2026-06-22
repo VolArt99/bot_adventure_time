@@ -195,13 +195,17 @@ async def ensure_initialized(*, for_polling: bool = False) -> None:
             start_scheduler()
             await restore_jobs(bot)
             if GROUP_ID:
-                schedule_digest(bot, GROUP_ID)
+                await schedule_digest(bot, GROUP_ID)
             logger.info("Планировщик, напоминания и weekly digest восстановлены")
             _polling_initialized = True
 
 async def main():
     logger.info("Запуск бота...")
     await ensure_initialized(for_polling=True)
+
+    # Polling несовместим с активным webhook (остаток старого деплоя / BotFather).
+    await bot.delete_webhook(drop_pending_updates=True)
+    logger.info("Webhook снят, режим polling")
 
     # Запуск поллинга с повторными попытками при сетевых сбоях
     logger.info("Запуск поллинга...")
