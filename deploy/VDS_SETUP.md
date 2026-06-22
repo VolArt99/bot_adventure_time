@@ -500,6 +500,40 @@ sudo systemctl restart ssh.socket
 
 Задайте `DONATION_SBERBANK_URL` и `DONATION_TBANK_URL` в `.env`.
 
+### Бот не подключается к PostgreSQL (`name resolution` / `Temporary failure`)
+
+**Причина:** в `.env` раскомментирован **`DATABASE_URL`** или **`PGHOST=localhost`** — бот ищет БД не на сервисе `postgres` в Docker.
+
+**Решение:**
+
+1. В `.env` **закомментируйте или удалите** строки:
+   ```env
+   # DATABASE_URL=...
+   # PGHOST=localhost
+   # PGUSER=...
+   # PGPASSWORD=...
+   # PGDATABASE=...
+   ```
+2. Оставьте только:
+   ```env
+   POSTGRES_USER=bot
+   POSTGRES_DB=adventure_time
+   POSTGRES_PASSWORD=ваш_пароль_без_символа_$
+   ```
+3. Перезапуск:
+   ```bash
+   cd /opt/bot_adventure_time
+   git pull
+   docker compose down
+   docker compose up -d --build
+   ```
+4. Проверка:
+   ```bash
+   docker compose ps
+   docker compose exec bot printenv PGHOST DATABASE_URL POSTGRES_USER
+   ```
+   Ожидается: `PGHOST=postgres`, `DATABASE_URL` пустой или отсутствует.
+
 ### WARN: переменная `D5f6g` is not set (или похожая)
 
 **Причина:** в `POSTGRES_PASSWORD` есть символ **`$`**. Docker Compose воспринимает `$D5f6g` как имя переменной.

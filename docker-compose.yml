@@ -28,6 +28,8 @@ services:
     env_file:
       - .env
     environment:
+      # Пустая строка перекрывает DATABASE_URL из .env — иначе битый URL ломает подключение
+      DATABASE_URL: ""
       PGHOST: postgres
       PGPORT: 5432
       ENV: ${ENV:-production}
