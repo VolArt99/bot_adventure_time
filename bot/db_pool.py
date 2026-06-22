@@ -21,18 +21,38 @@ DB_POOL_MIN_SIZE = max(1, int(os.getenv("DB_POOL_MIN_SIZE", "1")))
 DB_POOL_MAX_SIZE = max(DB_POOL_MIN_SIZE, int(os.getenv("DB_POOL_MAX_SIZE", "5")))
 
 
-def _resolve_database_url() -> str:
-    url = (DATABASE_URL or "").strip()
+def _resolve_connection_params() -> dict[str, Any]:
+    """Параметры подключения к PostgreSQL (без сборки DSN — пароль может содержать @, :, /)."""
+    url = (os.getenv("DATABASE_URL") or "").strip()
     if url:
-        return url
+        return {"dsn": url}
 
-    host = os.getenv("PGHOST", "localhost")
-    port = os.getenv("PGPORT", "5432")
+    host = (os.getenv("PGHOST") or "localhost").strip()
+    port = int(os.getenv("PGPORT", "5432"))
     user = os.getenv("PGUSER") or os.getenv("POSTGRES_USER", "bot")
-    password = os.getenv("PGPASSWORD") or os.getenv("POSTGRES_PASSWORD", "")
+    password = os.getenv("PGPASSWORD") or os.getenv("POSTGRES_PASSWORD") or None
     database = os.getenv("PGDATABASE") or os.getenv("POSTGRES_DB", "adventure_time")
-    if password:
-        return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+    return {
+        "host": host,
+        "port": port,
+        "user": user,
+        "password": password,
+        "database": database,
+    }
+
+
+def _resolve_database_url() -> str:
+    """Строка DSN для диагностики; в runtime предпочтительны отдельные параметры."""
+    params = _resolve_connection_params()
+    if "dsn" in params:
+        return params["dsn"]
+
+    user = params["user"]
+    host = params["host"]
+    port = params["port"]
+    database = params["database"]
+    if params.get("password"):
+        return f"postgresql://{user}:***@{host}:{port}/{database}"
     return f"postgresql://{user}@{host}:{port}/{database}"
 
 
@@ -69,17 +89,27 @@ def prepare_query(query: str, parameters: dict[str, Any] | None) -> tuple[str, l
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        database_url = _resolve_database_url()
-        if not database_url:
-            raise ValueError(
-                "DATABASE_URL (or PGHOST/PGUSER/PGPASSWORD/PGDATABASE) must be set."
+        params = _resolve_connection_params()
+        pool_kwargs = {
+            "min_size": DB_POOL_MIN_SIZE,
+            "max_size": DB_POOL_MAX_SIZE,
+            "command_timeout": 30,
+        }
+        if "dsn" in params:
+            _pool = await asyncpg.create_pool(params["dsn"], **pool_kwargs)
+        else:
+            if not params.get("host"):
+                raise ValueError(
+                    "DATABASE_URL (or PGHOST/POSTGRES_*) must be set."
+                )
+            _pool = await asyncpg.create_pool(
+                host=params["host"],
+                port=params["port"],
+                user=params["user"],
+                password=params["password"],
+                database=params["database"],
+                **pool_kwargs,
             )
-        _pool = await asyncpg.create_pool(
-            database_url,
-            min_size=DB_POOL_MIN_SIZE,
-            max_size=DB_POOL_MAX_SIZE,
-            command_timeout=30,
-        )
     return _pool
 
 

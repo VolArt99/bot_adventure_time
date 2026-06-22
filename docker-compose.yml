@@ -43,3 +43,7 @@ services:
 
 volumes:
   postgres_data:
+
+networks:
+  default:
+    name: bot_adventure_time_net
