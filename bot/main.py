@@ -167,7 +167,7 @@ def _register_handlers() -> None:
     
     
 async def ensure_initialized(*, for_polling: bool = False) -> None:
-    """Ленивая инициализация для polling/webhook режимов."""
+    """Ленивая инициализация перед запуском long polling."""
     global _is_initialized, _polling_initialized
 
     if _is_initialized and (not for_polling or _polling_initialized):

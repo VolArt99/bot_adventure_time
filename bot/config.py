@@ -57,7 +57,7 @@ RESTRICTED_COMMANDS = {
     if cmd.strip()
 }
 
-# Часовой пояс по умолчанию для расписаний и дайджестов
+# Часовой пояс бота: карточки, напоминания, weekly digest (не путать с timedatectl на сервере)
 TIMEZONE = os.getenv("TIMEZONE", "Europe/Moscow")  # Москва = СПб
 
 # Настройки напоминаний (в секундах)

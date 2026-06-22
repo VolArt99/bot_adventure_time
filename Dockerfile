@@ -10,10 +10,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements.txt
 COPY bot/requirements.txt bot/requirements.txt
 RUN pip install --upgrade pip \
-    && pip install -r requirements.txt
+    && pip install -r bot/requirements.txt
 
 COPY . .
 

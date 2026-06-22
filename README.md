@@ -285,7 +285,7 @@ Telegram-бот для приватного сообщества: меропри
 - `ADMIN_IDS` (через запятую)
 - `OWNER_CONTACT` — `@username`, HTTPS-ссылка или текст; в одобрении заявки отображается как кликабельный контакт
 - `ENV=production`
-- `TIMEZONE` (по умолчанию `Europe/Moscow`; для VDS в Финляндии — `Europe/Helsinki`)
+- `TIMEZONE` — по умолчанию `Europe/Moscow` (даты в боте, дайджест, напоминания). Часовой пояс ОС на VDS в Финляндии: `Europe/Helsinki` (`timedatectl`), см. `deploy/VDS_SETUP.md`
 - `AUTO_INIT_DB=1` — создать/проверить схему при старте
 
 ### Опциональные

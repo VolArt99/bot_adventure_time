@@ -2,6 +2,5 @@ __pycache__/
 *.py[cod]
 *.log
 .env
-data/*.db
 .pytest_cache/
 venv
