@@ -534,6 +534,33 @@ sudo systemctl restart ssh.socket
    ```
    Ожидается: `PGHOST=postgres`, `DATABASE_URL` пустой или отсутствует.
 
+### `Connection refused` к PostgreSQL (`172.x.x.x`, 5432)
+
+**Причина:** в `deploy/postgresql.vds.conf` не было `listen_addresses = '*'`. Healthcheck (`pg_isready` на localhost) проходит, а бот из другого контейнера — нет.
+
+**Решение:**
+
+```bash
+cd /opt/bot_adventure_time
+git pull   # в postgresql.vds.conf должны быть listen_addresses = '*' и port = 5432
+docker compose restart postgres
+docker compose logs --tail=20 postgres
+docker compose up -d --build bot
+```
+
+Проверка из контейнера бота:
+
+```bash
+docker compose run --rm bot python -c "
+import asyncio, os, asyncpg
+async def main():
+    c = await asyncpg.connect(host='postgres', port=5432, user=os.environ['POSTGRES_USER'],
+        password=os.environ['POSTGRES_PASSWORD'], database=os.environ.get('POSTGRES_DB','adventure_time'))
+    print('OK', await c.fetchval('SELECT 1')); await c.close()
+asyncio.run(main())
+"
+```
+
 ### WARN: переменная `D5f6g` is not set (или похожая)
 
 **Причина:** в `POSTGRES_PASSWORD` есть символ **`$`**. Docker Compose воспринимает `$D5f6g` как имя переменной.
