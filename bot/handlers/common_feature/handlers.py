@@ -31,6 +31,7 @@ from bot.database import (
     get_command_usage_summary,
     get_intro_members_statuses,
     get_or_create_user,
+    get_approved_member,
     get_pending_intro_members,
     get_pending_user,
     is_member_approved,
@@ -50,7 +51,7 @@ from bot.keyboards import (
     rules_ack_keyboard,
 )
 
-from .services import extract_command, is_user_in_group, notify_owner_about_request
+from .services import extract_command, is_user_in_group, notify_owner_about_request, notify_owner_about_member_start
 from .views import (
     build_approval_message,
     build_approved_member_start_text,
@@ -88,7 +89,15 @@ async def cmd_start(message: Message):
     await get_or_create_user(user_id, username)
     try:
         if await is_user_in_group(message, user_id=user_id):
-            await upsert_approved_member(user_id, username, full_name, intro_status="completed")
+            existing = await get_approved_member(user_id)
+            intro_status = "completed"
+            if existing and existing.get("intro_status") == "pending":
+                intro_status = "pending"
+            elif not existing:
+                intro_status = "pending"
+            await upsert_approved_member(user_id, username, full_name, intro_status=intro_status)
+            if intro_status == "pending":
+                await notify_owner_about_member_start(message)
             await message.answer(
                 build_approved_member_start_text(),
                 reply_markup=start_menu_keyboard(),
@@ -111,8 +120,12 @@ async def rules_ack(callback: CallbackQuery):
     user = callback.from_user
     full_name = " ".join(filter(None, [user.first_name, user.last_name])).strip()
     if await is_user_in_group(callback.message, user_id=user.id):
-        await upsert_approved_member(user.id, user.username, full_name, intro_status="completed")
+        existing = await get_approved_member(user.id)
+        intro_status = "completed" if existing and existing.get("intro_status") == "completed" else "pending"
+        await upsert_approved_member(user.id, user.username, full_name, intro_status=intro_status)
         await callback.message.answer(build_rules_accepted_existing_member_text())
+        if intro_status == "pending":
+            await notify_owner_about_member_start(callback.message)
     else:
         await add_pending_user(user.id, user.username, full_name)
         await notify_owner_about_request(callback)

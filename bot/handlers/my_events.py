@@ -22,6 +22,7 @@ from bot.database import (
     get_approved_member_ids,
     is_member_approved,
     get_user_id_by_username,
+    add_participant,
 )
 from bot.keyboards import event_actions, period_keyboard
 

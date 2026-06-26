@@ -339,6 +339,20 @@ async def is_member_approved(user_id: int) -> bool:
     return bool(result[0].rows)
 
 
+async def get_approved_member(user_id: int) -> Optional[Dict[str, Any]]:
+    """Возвращает запись одобренного участника или None."""
+    result = await _run_query(
+            """
+            SELECT user_id, username, full_name, join_date, intro_status
+            FROM approved_members
+            WHERE user_id = $user_id
+            """,
+            parameters={"user_id": int(user_id)})
+    if not result[0].rows:
+        return None
+    return _normalize_row(result[0].rows[0])
+
+
 async def approve_pending_user(user_id: int) -> Optional[Dict[str, Any]]:
     pending = await get_pending_user(user_id)
     if not pending:
@@ -607,6 +621,26 @@ async def update_event_message_id(event_id: int, thread_id: int, message_id: int
                 "thread_id": thread_id or 0,
                 "message_id": message_id,
             })
+
+
+async def update_event(event_id: int, fields: Dict[str, Any]) -> bool:
+    """Обновляет поля мероприятия. Возвращает False, если событие не найдено."""
+    allowed = {
+        "title", "description", "date_time", "duration_minutes", "period_end",
+        "location", "price_total", "price_per_person", "participant_limit",
+        "thread_id", "weather_info", "carpool_enabled", "category",
+    }
+    updates = {key: value for key, value in fields.items() if key in allowed}
+    if not updates:
+        return bool(await get_event(event_id))
+
+    set_clause = ", ".join(f"{column} = ${column}" for column in updates)
+    parameters = {"event_id": int(event_id), **updates}
+    await _run_query(
+        f"UPDATE events SET {set_clause} WHERE id = $event_id",
+        parameters=parameters,
+    )
+    return bool(await get_event(event_id))
 
 
 async def get_active_events() -> List[Dict]:

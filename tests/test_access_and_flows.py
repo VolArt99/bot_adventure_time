@@ -112,6 +112,10 @@ class CommonCommandFlowTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("bot.handlers.common_feature.handlers.get_or_create_user", new=AsyncMock()),
             patch("bot.handlers.common_feature.handlers.is_user_in_group", new=AsyncMock(return_value=True)),
+            patch(
+                "bot.handlers.common_feature.handlers.get_approved_member",
+                new=AsyncMock(return_value={"intro_status": "completed"}),
+            ),
             patch("bot.handlers.common_feature.handlers.upsert_approved_member", new=AsyncMock()),
         ):
             await common.cmd_start(message)

@@ -48,6 +48,7 @@ async def process_carpool_choice(message: Message, state: FSMContext, carpool: b
     topics = await get_topics_list_from_db()
 
     if topics:
+        await state.update_data(thread_step_shown=True)
         await state.set_state(CreateEvent.thread)
         await answer_private_intermediate(
             message,
@@ -57,7 +58,7 @@ async def process_carpool_choice(message: Message, state: FSMContext, carpool: b
         )
         return
 
-    await state.update_data(thread_id=None)
+    await state.update_data(thread_id=None, thread_step_shown=False)
     await state.set_state(CreateEvent.category)
     await answer_private_intermediate(
         message,
@@ -78,7 +79,7 @@ async def process_topic(callback: CallbackQuery, state: FSMContext):
         thread_id_str = callback.data.split("_")[1]
         thread_id = int(thread_id_str) if thread_id_str != "0" else None
 
-        await state.update_data(thread_id=thread_id)
+        await state.update_data(thread_id=thread_id, thread_step_shown=True)
 
         await state.set_state(CreateEvent.category)
         await answer_private_intermediate(

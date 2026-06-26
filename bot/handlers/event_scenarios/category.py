@@ -2,7 +2,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from bot.constants import EVENT_CATEGORIES, EVENT_CATEGORY_GROUPS
+from bot.constants import EVENT_CATEGORIES, EVENT_CATEGORY_GROUPS, category_badge_key, dedupe_categories
 from bot.keyboards import category_groups_keyboard, category_subgroups_keyboard, event_preview_keyboard
 from bot.utils.callbacks import finalize_callback
 from bot.utils.ui import answer_private_intermediate
@@ -64,11 +64,16 @@ async def toggle_category(callback: CallbackQuery, state: FSMContext):
         await finalize_callback(callback, "Сначала выберите группу", show_alert=True)
         return
 
-    selected_categories = data.get("selected_categories", [])
+    selected_categories = dedupe_categories(data.get("selected_categories", []))
     if category_value in selected_categories:
         selected_categories.remove(category_value)
     else:
+        badge_key = category_badge_key(category_value)
+        selected_categories = [
+            item for item in selected_categories if category_badge_key(item) != badge_key
+        ]
         selected_categories.append(category_value)
+        selected_categories = dedupe_categories(selected_categories)
 
     await state.update_data(selected_categories=selected_categories)
     await finalize_callback(callback, "Список обновлён")
@@ -93,11 +98,12 @@ async def back_to_category_groups(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(CreateEvent.category, F.data == "category_done")
 async def finish_categories(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    selected_categories = data.get("selected_categories", [])
+    selected_categories = dedupe_categories(data.get("selected_categories", []))
     if not selected_categories:
         await finalize_callback(callback, "Выберите хотя бы одну подкатегорию", show_alert=True)
         return
 
+    await state.update_data(selected_categories=selected_categories)
     category_value = ",".join(selected_categories)
     event_data = await build_event_payload(state, category_value, callback.from_user.id)
     organizer_mention = await get_user_mention(callback.from_user.id, callback.bot)

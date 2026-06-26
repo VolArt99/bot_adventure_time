@@ -123,6 +123,29 @@ def category_badge(category: str | None) -> str:
             return badge
     return f"{category.strip().title()}"
 
+
+def category_badge_key(category: str | None) -> str:
+    """Ключ для дедупликации подкатегорий с одинаковым бейджем."""
+    return category_badge(category).casefold()
+
+
+def dedupe_categories(categories: list[str]) -> list[str]:
+    """Убирает дубли подкатегорий (в т.ч. с одинаковым бейджем)."""
+    seen_exact: set[str] = set()
+    seen_badges: set[str] = set()
+    result: list[str] = []
+    for category in categories:
+        normalized = (category or "").strip()
+        if not normalized or normalized in seen_exact:
+            continue
+        badge_key = category_badge_key(normalized)
+        if badge_key in seen_badges:
+            continue
+        seen_exact.add(normalized)
+        seen_badges.add(badge_key)
+        result.append(normalized)
+    return result
+
 CARPOOL_HELP_TEXT = (
     "🚗 <b>Нужен карпулинг?</b> (да/нет)\n"
     "Карпулинг — это когда участники едут вместе на машине.\n"

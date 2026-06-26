@@ -10,12 +10,7 @@ from bot.utils.design import (
     EVENT_CATEGORY_TONES,
     brand_voice,
     card_cta,
-    card_header,
-    card_progress_bar,
     card_section,
-    category_accent_strip,
-    compact_cta,
-    primary_category_group,
     season_copy,
     seasonal_card_divider,
     seasonal_menu_icon,
@@ -213,82 +208,56 @@ async def format_event_message(
     waitlist_count = len(waitlist_list)
     limit_value = event.get("participant_limit")
     limit_str = str(limit_value) if limit_value else "∞"
-    limit_int = int(limit_value) if str(limit_value or "").isdigit() else None
 
     if price_total > 0 and going_count > 0:
         calculated_per_person = round(price_total / going_count, 2)
-        price_text = (
-            f"💰 Общая: {price_total} ₽\n" f"💰 С человека: {calculated_per_person} ₽"
-        )
-        price_summary = f"общая {price_total} ₽ · примерно {calculated_per_person} ₽/чел"
+        price_detail = f"💰 ~{calculated_per_person} ₽/чел (общий счёт {price_total} ₽)"
     elif price_total > 0:
-        price_text = f"💰 Общая: {price_total} ₽"
-        price_summary = f"общая {price_total} ₽"
+        price_detail = f"💰 общий счёт {price_total} ₽"
     elif price_per_person > 0:
-        price_text = f"💰 С человека: {price_per_person} ₽"
-        price_summary = f"{price_per_person} ₽/чел"
+        price_detail = f"💰 {price_per_person} ₽/чел"
     else:
-        price_text = "💰 Бесплатно"
-        price_summary = "бесплатно"
+        price_detail = "💰 Бесплатно"
 
     weather = await _resolve_weather_line(event, dt)
-    carpool = "🚗 Карпулинг включён" if event.get("carpool_enabled") else ""
+    carpool_enabled = bool(event.get("carpool_enabled"))
 
-    going_names = (
-        "\n".join(mentions_dict.get(uid, f"id{uid}") for uid in going_list) or "—"
-    )
-    waitlist_names = (
-        "\n".join(mentions_dict.get(uid, f"id{uid}") for uid in waitlist_list) or "—"
-    )
+    going_inline = " · ".join(mentions_dict.get(uid, f"id{uid}") for uid in going_list) or "—"
+    waitlist_inline = " · ".join(mentions_dict.get(uid, f"id{uid}") for uid in waitlist_list) or "—"
 
-    hero = f"📅 {date_str} в {time_str} · 📍 {location}"
     status_badges = event_status_badges(event, going_count, waitlist_count)
-    accent = category_accent_strip(event.get("category"))
-    group_key = primary_category_group(event.get("category"))
-    group_tone = EVENT_CATEGORY_TONES.get(group_key, "⚪")
     lines = [
-        f"{accent} <i>категория</i>",
-        *card_header(BRAND["event"], title, status_badges),
-        f"<b>{hero}</b>",
-        f"🆔 ID: <code>{event['id']}</code>",
+        f"{BRAND['event']} <b>{title}</b>",
+        f"{status_badges} · 🎟 {going_count}/{limit_str}",
+        "",
+        f"📅 {date_str}, {time_str}",
+        f"📍 {location}",
     ]
 
     if description:
-        lines.append(description)
+        lines.extend(["", description])
 
-    if topic_name:
-        lines.append(f"🚀 Тема: {escape(topic_name)}")
-
+    about_lines: list[str] = [category]
+    timing_parts = [f"⏱ {duration}", price_detail]
+    about_lines.append(" · ".join(timing_parts))
+    if period_text:
+        about_lines.append(period_text)
+    if carpool_enabled:
+        about_lines.append("🚗 Карпулинг включён")
     if organizer_mention:
-        lines.append(f"👤 Организатор: {organizer_mention}")
-    if responsible_mention:
-        lines.append(f"🧩 Ответственный: {responsible_mention}")
-
+        about_lines.append(f"👤 Организатор: {organizer_mention}")
+    if responsible_mention and responsible_mention != organizer_mention:
+        about_lines.append(f"🧩 Ответственный: {responsible_mention}")
+    if topic_name:
+        about_lines.append(f"🚀 Тема: {escape(topic_name)}")
     if weather:
-        lines.append(weather)
+        about_lines.append(weather)
+    about_lines.append(f"🆔 ID: <code>{event['id']}</code>")
+    lines.extend(card_section("О мероприятии", about_lines))
 
-    quick_lines = [
-        f"🎟 Места: {card_progress_bar(going_count, limit_int)} {going_count}/{limit_str}",
-        f"{group_tone} Категория: {escape(category_to_visual_badges(event.get('category')))}",
-        f"💸 Стоимость: {escape(price_summary)}",
-        f"🚗 Карпулинг: {'включён' if event.get('carpool_enabled') else 'нет'}",
-    ]
-    lines.extend(card_section("⚡ Быстрый взгляд", quick_lines))
-    
-    lines.extend(
-        card_section(
-            "Детали",
-            [
-                *([period_text] if period_text else []),
-                f"⏱️ Длительность: {duration}",
-                f"🏷️ Категории: {category}",
-                price_text,
-                f"👥 Кто уже идёт: {going_count}/{limit_str}",
-            ],
-        )
-    )
-    lines.extend(card_section("Список участников", [going_names]))
-    lines.extend(card_section("Резерв", [waitlist_names]))
+    lines.extend(card_section(f"Идут ({going_count})", [going_inline]))
+    if waitlist_count > 0:
+        lines.extend(card_section(f"Резерв ({waitlist_count})", [waitlist_inline]))
 
     maps_link = build_maps_link(event.get("location"))
     y_maps_link = build_yandex_maps_link(event.get("location"))
@@ -308,10 +277,7 @@ async def format_event_message(
         if ycal_link:
             lines.append(f'• <a href="{ycal_link}">Яндекс Календарь</a>')
 
-    if carpool:
-        lines.extend(["", carpool])
-
-    if event.get("carpool_enabled") and str(event.get("id", "")).isdigit():
+    if carpool_enabled and str(event.get("id", "")).isdigit():
         from bot.database import get_drivers_with_passengers
 
         drivers = await get_drivers_with_passengers(int(event["id"]))

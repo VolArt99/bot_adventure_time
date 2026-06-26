@@ -99,7 +99,7 @@ class FeatureHelpersTest(unittest.TestCase):
         self.assertIn("dates=20260601T100000%2F20260605T100000", calendar_link)
 
 
-    def test_event_message_uses_yandex_maps_without_navigator(self):
+    def test_event_message_uses_hero_and_details_layout(self):
         event = {
             "id": 1,
             "title": "Вело",
@@ -113,12 +113,14 @@ class FeatureHelpersTest(unittest.TestCase):
 
         text = asyncio.run(format_event_message(event, [], [], {}))
 
-        self.assertIn("⚡ Быстрый взгляд", text)
-        self.assertIn("🎟 Места:", text)
-        self.assertIn("🟢🟢🟢🟢", text)
-        self.assertIn("🏷️ Категории: 🟢 Спорт", text)
+        self.assertIn("О мероприятии", text)
+        self.assertIn("Идут (0)", text)
+        self.assertIn("🟢 Спорт", text)
         self.assertIn("Готов к приключению", text)
         self.assertIn("Яндекс Карты", text)
+        self.assertNotIn("⚡ Быстрый взгляд", text)
+        self.assertNotIn("🟢🟢🟢🟢", text)
+        self.assertNotIn("🏷️ Категории:", text)
         self.assertNotIn("Яндекс Навигатор", text)
         self.assertNotIn("/navi/", text)
 

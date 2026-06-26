@@ -87,6 +87,71 @@ def event_preview_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def template_field_keyboard(
+    keep_callback: str,
+    custom_callback: str,
+    *,
+    skip_callback: str | None = None,
+    back_callback: str | None = None,
+) -> InlineKeyboardMarkup:
+    """Выбор: оставить значение шаблона или ввести своё."""
+    rows = [
+        [InlineKeyboardButton(text="✅ Оставить из шаблона", callback_data=keep_callback)],
+        [InlineKeyboardButton(text="✏️ Ввести своё", callback_data=custom_callback)],
+    ]
+    if skip_callback:
+        rows.append([InlineKeyboardButton(text="⏭ Пропустить", callback_data=skip_callback)])
+    if back_callback:
+        rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=back_callback)])
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_create")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def edit_event_fields_keyboard(event_id: int) -> InlineKeyboardMarkup:
+    """Меню выбора поля для редактирования мероприятия."""
+    prefix = f"edit_field_{event_id}_"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📝 Название", callback_data=f"{prefix}title")],
+            [InlineKeyboardButton(text="📄 Описание", callback_data=f"{prefix}description")],
+            [InlineKeyboardButton(text="🗓 Дата и время", callback_data=f"{prefix}datetime")],
+            [InlineKeyboardButton(text="📆 Конец периода", callback_data=f"{prefix}period_end")],
+            [InlineKeyboardButton(text="⏱ Длительность", callback_data=f"{prefix}duration")],
+            [InlineKeyboardButton(text="📍 Место", callback_data=f"{prefix}location")],
+            [InlineKeyboardButton(text="💰 Стоимость", callback_data=f"{prefix}price")],
+            [InlineKeyboardButton(text="👥 Лимит участников", callback_data=f"{prefix}limit")],
+            [InlineKeyboardButton(text="🚗 Карпулинг", callback_data=f"{prefix}carpool")],
+            [InlineKeyboardButton(text="📂 Категории", callback_data=f"{prefix}category")],
+            [InlineKeyboardButton(text="✅ Готово", callback_data=f"edit_done_{event_id}")],
+        ]
+    )
+
+
+def edit_event_price_mode_keyboard(event_id: int) -> InlineKeyboardMarkup:
+    """Режим стоимости при редактировании."""
+    prefix = f"edit_price_{event_id}_"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🆓 Бесплатно", callback_data=f"{prefix}free")],
+            [InlineKeyboardButton(text="💵 Общая сумма", callback_data=f"{prefix}total")],
+            [InlineKeyboardButton(text="👤 С человека", callback_data=f"{prefix}person")],
+            [InlineKeyboardButton(text="↩️ К полям", callback_data=f"edit_menu_{event_id}")],
+        ]
+    )
+
+
+def edit_event_carpool_keyboard(event_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да", callback_data=f"edit_carpool_{event_id}_yes"),
+                InlineKeyboardButton(text="❌ Нет", callback_data=f"edit_carpool_{event_id}_no"),
+            ],
+            [InlineKeyboardButton(text="↩️ К полям", callback_data=f"edit_menu_{event_id}")],
+        ]
+    )
+
+
 def quick_event_templates_keyboard() -> InlineKeyboardMarkup:
     """Быстрые сценарии создания мероприятий."""
     return InlineKeyboardMarkup(
@@ -275,7 +340,7 @@ def category_subgroups_keyboard(
     for category in subcategories:
         marker = "✅ " if category in selected_categories else ""
         builder.button(
-            text=f"{marker}{category_badge(category)}",
+            text=f"{marker}{category_badge(category)} · {category}",
             callback_data=f"category_toggle_{category}",
         )
 

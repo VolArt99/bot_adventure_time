@@ -39,6 +39,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec("set_carpool_manual", "set_carpool_manual", "Ручное управление статусом карпулинга.", "events", CommandKind.HELP, "/set_carpool_manual &lt;event_id&gt; &lt;driver_id|@driver&gt; &lt;seats&gt;"),
     CommandSpec("add_passenger_manual", "add_passenger_manual", "Ручное добавление пассажира к водителю.", "events", CommandKind.HELP, "/add_passenger_manual &lt;event_id&gt; &lt;passenger_id|@passenger&gt; &lt;driver_id|@driver&gt;"),
     CommandSpec("send_event_card", "send_event_card", "Отправить короткое сообщение со ссылкой на основную карточку мероприятия.", "events", CommandKind.HELP, "/send_event_card &lt;event_id&gt;"),
+    CommandSpec("edit_event", "edit_event", "Редактировать поля мероприятия. Пример: <code>/edit_event 42</code>", "events", CommandKind.HELP, "/edit_event &lt;event_id&gt;"),
     CommandSpec("digest", "digest", "Открыть общую афишу.", "digest", CommandKind.ACTION),
     CommandSpec("subscriptions", "subscriptions", "Настроить подписки и уведомления.", "digest", CommandKind.ACTION),
     CommandSpec("my_digest", "my_digest", "Получить персональный дайджест.", "digest", CommandKind.ACTION),
