@@ -228,6 +228,7 @@ def menu_section_keyboard(section: str, is_admin_or_owner: bool = False) -> Inli
             [InlineKeyboardButton(text="📣 /digest", callback_data="menu_action_digest")],
             [InlineKeyboardButton(text="🔎 /find_events", callback_data="menu_cmd_find_events")],
             [InlineKeyboardButton(text="🔗 /send_event_card", callback_data="menu_cmd_send_event_card")],
+            [InlineKeyboardButton(text="✏️ /edit_event", callback_data="menu_cmd_edit_event")],
             [InlineKeyboardButton(text="👤 /set_responsible", callback_data="menu_cmd_set_responsible")],
             [InlineKeyboardButton(text="➕ /add_participant_manual", callback_data="menu_cmd_add_participant_manual")],
             [InlineKeyboardButton(text="🚗 /set_carpool_manual", callback_data="menu_cmd_set_carpool_manual")],
@@ -250,7 +251,7 @@ def menu_section_keyboard(section: str, is_admin_or_owner: bool = False) -> Inli
         "help": [
             [InlineKeyboardButton(text="❓ /help", callback_data="menu_cmd_help")],
             [InlineKeyboardButton(text="✅ /status", callback_data="menu_cmd_status")],
-            [InlineKeyboardButton(text="☕ Поддержать бота", callback_data="menu_action_donate")],
+            [InlineKeyboardButton(text="☕ /donate", callback_data="menu_action_donate")],
         ],
         "money": [
             [InlineKeyboardButton(text="🧾 /split_bill", callback_data="menu_action_split_bill")],
@@ -263,21 +264,21 @@ def menu_section_keyboard(section: str, is_admin_or_owner: bool = False) -> Inli
     if is_admin_or_owner:
         section_rows["admin"] = [
             [
-                InlineKeyboardButton(text="Роли", callback_data="menu_action_roles"),
-                InlineKeyboardButton(text="Статы", callback_data="menu_action_usage_stats"),
+                InlineKeyboardButton(text="🛡 /roles", callback_data="menu_action_roles"),
+                InlineKeyboardButton(text="📊 /usage_stats", callback_data="menu_action_usage_stats"),
             ],
-            [InlineKeyboardButton(text="Отчёт", callback_data="menu_action_admin_report")],
-            [InlineKeyboardButton(text="Афиша", callback_data="menu_action_send_events_list")],
-            [InlineKeyboardButton(text="Возврат", callback_data="menu_cmd_member_reengage")],
-            [InlineKeyboardButton(text="Синхр.", callback_data="menu_cmd_sync_members")],
-            [InlineKeyboardButton(text="Интро", callback_data="menu_cmd_pending_intro")],
+            [InlineKeyboardButton(text="📋 /admin_report", callback_data="menu_action_admin_report")],
+            [InlineKeyboardButton(text="📣 /send_events_list", callback_data="menu_action_send_events_list")],
+            [InlineKeyboardButton(text="💬 /member_reengage", callback_data="menu_cmd_member_reengage")],
+            [InlineKeyboardButton(text="🔄 /sync_members", callback_data="menu_cmd_sync_members")],
+            [InlineKeyboardButton(text="📝 /pending_intro", callback_data="menu_cmd_pending_intro")],
             [
-                InlineKeyboardButton(text="Диагн.", callback_data="menu_cmd_debug_info"),
-                InlineKeyboardButton(text="Темы", callback_data="menu_cmd_list_topics"),
+                InlineKeyboardButton(text="🔧 /debug_info", callback_data="menu_cmd_debug_info"),
+                InlineKeyboardButton(text="🗂 /list_topics", callback_data="menu_cmd_list_topics"),
             ],
-            [InlineKeyboardButton(text="Имена тем", callback_data="menu_cmd_update_topic_names")],
-            [InlineKeyboardButton(text="Пары", callback_data="menu_action_random_pairs")],
-            [InlineKeyboardButton(text="1:1", callback_data="menu_cmd_random_optin_count")],
+            [InlineKeyboardButton(text="🏷 /update_topic_names", callback_data="menu_cmd_update_topic_names")],
+            [InlineKeyboardButton(text="🤝 /random_pairs", callback_data="menu_action_random_pairs")],
+            [InlineKeyboardButton(text="👥 /random_optin_count", callback_data="menu_cmd_random_optin_count")],
         ]
 
     rows = section_rows.get(section, []) + [[InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu_home")]]

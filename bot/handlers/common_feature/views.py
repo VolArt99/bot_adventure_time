@@ -100,7 +100,7 @@ MENU_BUTTON_DESCRIPTIONS = {
     "🤝 Комьюнити": "включить random 1:1 и посмотреть активность участников.",
     "❓ Помощь": "прочитать справку без лишней клавиатуры внизу.",
     "☕ Поддержать": "открыть ссылки на сборы для поддержки бота.",
-    "Админ": "отчёты, диагностика и служебные действия для админов.",
+    "Админ": "отчёты, диагностика, интро и служебные команды для админов.",
 }
 
 SECTION_TONES = {
@@ -109,9 +109,9 @@ SECTION_TONES = {
         "title": "События",
         "subtitle": "Афиша, создание и управление встречами",
         "focus": [
-            "• быстрый путь к созданию и шаблонам;",
+            "• быстрый путь к созданию, шаблонам и редактированию;",
             "• афиша, поиск и ваши мероприятия;",
-            "• служебные действия только по карточкам событий.",
+            "• ручное управление участниками и карпулингом.",
         ],
         "cta": "Куда отправимся? Выбирай маршрут ниже.",
     },
@@ -168,7 +168,7 @@ SECTION_TONES = {
             "• астрономия, картинг и кооперативная игра на ПК;",
             "• также доступны книжный клуб, квиз, настолки и прогулка.",
         ],
-        "cta": "Нажми шаблон — бот подставит название, описание и категорию.",
+        "cta": "Нажми шаблон — затем выбери название, описание или введи свои.",
     },
 }
 
@@ -177,6 +177,7 @@ INLINE_BUTTON_HELP = [
     "🚗 Водитель / 👥 Попутка — включают карпулинг для события, если он разрешён.",
     "🗑 Удалить — удаляет событие у создателя/админа после проверки прав.",
     "↩️ Назад / ❌ Отмена / ⏭ Пропустить — навигация в мастерах без ручного ввода команд.",
+    "✅ Оставить из шаблона / ✏️ Ввести своё — выбор названия и описания в быстром шаблоне.",
     "🗺️ Публикуем! — финальная публикация приключения после превью.",
     "📌 В основной чат / 📁 Тема — выбор места публикации в группе или forum topic.",
     "📆 За неделю / 🗓 За месяц / 🧾 За всё время — выбор периода для списков и дайджестов.",
@@ -257,12 +258,30 @@ def build_menu_section_text(section: str, *, is_admin_or_owner: bool) -> str | N
     ])
 
 
-from bot.commands import COMMANDS_BY_KEY
+from bot.commands import COMMAND_SPECS, CommandKind, CommandSpec
+
+
+HELP_GROUP_LABELS: dict[str, str] = {
+    "base": "🚀 База",
+    "events": "📅 Мероприятия",
+    "digest": "📰 Дайджест и подписки",
+    "community": "📈 Активность и random 1:1",
+    "money": "💳 Разделение чека",
+    "admin": "🛡 Админ",
+}
+
+HELP_GROUP_ORDER: tuple[str, ...] = ("base", "events", "digest", "community", "money")
+
+
+def _format_help_command_line(spec: CommandSpec) -> str:
+    if spec.kind == CommandKind.HELP:
+        return f"• <code>{spec.display_syntax}</code> — {spec.description}"
+    return f"• /{spec.command} — {spec.description}"
 
 
 COMMAND_ACTIONS = {
-    key: (spec.display_syntax, spec.description)
-    for key, spec in COMMANDS_BY_KEY.items()
+    spec.key: (spec.display_syntax, spec.description)
+    for spec in COMMAND_SPECS
 }
 
 # Legacy overrides with rich examples.
@@ -279,6 +298,7 @@ COMMAND_ACTIONS.update({
     "set_carpool_manual": ("/set_carpool_manual &lt;event_id&gt; &lt;driver_id|@driver&gt; &lt;seats&gt;", "Ручное управление статусом карпулинга."),
     "add_passenger_manual": ("/add_passenger_manual &lt;event_id&gt; &lt;passenger_id|@passenger&gt; &lt;driver_id|@driver&gt;", "Ручное добавление пассажира к водителю."),
     "send_event_card": ("/send_event_card &lt;event_id&gt;", "Отправить короткое сообщение со ссылкой на основную карточку мероприятия."),
+    "edit_event": ("/edit_event &lt;event_id&gt;", "Редактировать поля мероприятия (создатель, ответственный или админ). Пример: <code>/edit_event 42</code>"),
     "digest": ("/digest", "Открыть общую афишу."),
     "subscriptions": ("/subscriptions", "Настроить подписки и уведомления."),
     "my_digest": ("/my_digest", "Получить персональный дайджест."),
@@ -318,57 +338,24 @@ def build_command_action_text(command_key: str) -> str | None:
 
 
 def build_member_help_text() -> str:
-    return (
-        "ℹ️ <b>Команды участника</b>\n\n"
-        "🚀 <b>База</b>\n"
-        "• /start — запуск бота и проверка доступа.\n"
-        "• /help — показать эту подробную справку.\n"
-        "• /menu — открыть стильное кнопочное меню.\n"
-        "• /status — быстрый признак, что бот онлайн.\n"
-        "• /donate — поддержать работу бота (ссылки на сборы).\n\n"
-        "📅 <b>Мероприятия</b>\n"
-        "• /create_event — пошагово создать мероприятие и опубликовать в группе.\n"
-        "• /my_events — список ваших мероприятий и управление ими.\n"
-        "• <code>/find_events &lt;текст&gt;</code> — поиск активных мероприятий по названию/описанию/месту.\n\n"
-        "• <code>/set_responsible &lt;event_id&gt; &lt;user_id|@username&gt;</code> — сменить ответственного (создатель/админ).\n"
-        "  Пример: <code>/set_responsible 42 @ivan</code>\n"
-        "• <code>/add_participant_manual &lt;event_id&gt; &lt;user_id|@username&gt;</code> — ручное добавление.\n"
-        "  Пример: <code>/add_participant_manual 42 @ivan</code>\n"
-        "• <code>/send_event_card &lt;event_id&gt;</code> — отправить короткое сообщение со ссылкой на основную карточку мероприятия.\n\n"
-        "📰 <b>Дайджест и подписки</b>\n"
-        "• /digest — посмотреть афишу на период.\n"
-        "• /subscriptions — настроить персональные уведомления.\n"
-        "• /my_digest — получить персональный дайджест.\n\n"
-        "📈 <b>Активность</b>\n"
-        "• /my_stats — ваша статистика участий.\n"
-        "• /top — топ активных участников за 30 дней.\n\n"
-        "🤝 <b>Случайные встречи 1:1</b>\n"
-        "• /random_optin — согласиться участвовать в случайных встречах.\n"
-        "• /random_optout — отказаться от случайных встреч.\n\n"
-        "💳 <b>Разделение чека</b>\n"
-        "• /split_bill — пошагово создать событие разделения чека с публикацией и кнопками.\n"
-        "• <code>/split_bill_add &lt;id&gt; &lt;user_id|@username&gt;</code> — добавить участника вручную (организатор).\n\n"
-        "🔘 <b>Описание кнопок</b>\n"
-        + "\n".join(f"• {line}" for line in INLINE_BUTTON_HELP)
-    )
+    lines = ["ℹ️ <b>Команды участника</b>"]
+    for group in HELP_GROUP_ORDER:
+        specs = [spec for spec in COMMAND_SPECS if spec.group == group]
+        if not specs:
+            continue
+        lines.append("")
+        lines.append(HELP_GROUP_LABELS[group])
+        lines.extend(_format_help_command_line(spec) for spec in specs)
+    lines.extend(["", "🔘 <b>Описание кнопок</b>"])
+    lines.extend(f"• {line}" for line in INLINE_BUTTON_HELP)
+    return "\n".join(lines)
 
 
 def build_admin_help_text() -> str:
-    return (
-        "<b>Админ · команды администратора/владельца</b>\n\n"
-        "• /roles — текущая модель ролей и лимитов.\n"
-        "• /usage_stats — среднее число запросов по ролям за 7 дней.\n"
-        "• /debug_info — диагностическая сводка бота/группы/тем.\n"
-        "• /list_topics — показать темы форума из БД.\n"
-        "• /update_topic_names — синхронизировать названия тем.\n"
-        "• /admin_report — управленческий отчёт по активности.\n"
-        "• /send_events_list — отправить актуальный список мероприятий в выбранную группу/тему.\n"
-        "• /member_reengage — отчёт по «молчащим» участникам и рекомендации, кого мягко позвать.\n"
-        "• /sync_members — очистить локальный список участников от выбывших из группы.\n"
-        "• /random_pairs — сформировать пары 1:1 и опубликовать их в выбранной группе/теме.\n"
-        "• /pending_intro — единый отчёт по «Рассказу о себе» + кнопки отметки статуса.\n"
-        "• /random_optin_count — (владелец) количество участников, согласных на 1:1.\n"
-    )
+    admin_specs = [spec for spec in COMMAND_SPECS if spec.group == "admin"]
+    lines = ["<b>Админ · команды администратора/владельца</b>", ""]
+    lines.extend(_format_help_command_line(spec) for spec in admin_specs)
+    return "\n".join(lines)
 
 
 def build_help_text(*, is_admin_or_owner: bool) -> str:

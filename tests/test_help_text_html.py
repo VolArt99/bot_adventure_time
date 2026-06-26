@@ -4,6 +4,7 @@ import unittest
 os.environ.setdefault("BOT_TOKEN", "test-token")
 os.environ.setdefault("OWNER_ID", "12345")
 
+from bot.commands import COMMAND_SPECS
 from bot.handlers.common_feature.views import (
     build_approval_message,
     build_command_action_text,
@@ -106,13 +107,65 @@ class HelpTextHtmlTests(unittest.TestCase):
         
         self.assertEqual(event_callbacks["🎉 /create_event"], "menu_action_create_event")
         self.assertEqual(event_callbacks["🔗 /send_event_card"], "menu_cmd_send_event_card")
+        self.assertEqual(event_callbacks["✏️ /edit_event"], "menu_cmd_edit_event")
 
     def test_command_action_text_contains_examples(self):
         text = build_command_action_text("find_events")
 
         self.assertIn("/find_events", text)
         self.assertIn("&lt;текст&gt;", text)
-        self.assertIn("<code>/find_events квиз</code>", text)        
+        self.assertIn("<code>/find_events квиз</code>", text)
+
+    def test_help_lists_all_member_commands_from_registry(self):
+        text = build_help_text(is_admin_or_owner=False)
+        for spec in COMMAND_SPECS:
+            if spec.group == "admin":
+                continue
+            self.assertIn(f"/{spec.command}", text, msg=f"missing /{spec.command} in member help")
+
+    def test_help_lists_all_admin_commands_for_admin(self):
+        text = build_help_text(is_admin_or_owner=True)
+        for spec in COMMAND_SPECS:
+            if spec.group != "admin":
+                continue
+            self.assertIn(f"/{spec.command}", text, msg=f"missing /{spec.command} in admin help")
+
+    def _menu_command_names(self, *, is_admin_or_owner: bool = False) -> set[str]:
+        names: set[str] = set()
+        sections = ("events", "money", "notifications", "community", "help")
+        if is_admin_or_owner:
+            sections = (*sections, "admin")
+        for section in sections:
+            keyboard = menu_section_keyboard(section, is_admin_or_owner=is_admin_or_owner)
+            for row in keyboard.inline_keyboard:
+                for button in row:
+                    for token in button.text.split():
+                        if token.startswith("/"):
+                            names.add(token.lstrip("/"))
+        return names
+
+    def test_menu_lists_all_member_commands_from_registry(self):
+        menu_commands = self._menu_command_names()
+        excluded = {"start", "menu"}
+        for spec in COMMAND_SPECS:
+            if spec.group == "admin" or spec.command in excluded:
+                continue
+            self.assertIn(
+                spec.command,
+                menu_commands,
+                msg=f"/{spec.command} missing from /menu sections",
+            )
+
+    def test_menu_lists_all_admin_commands_for_admin_section(self):
+        menu_commands = self._menu_command_names(is_admin_or_owner=True)
+        for spec in COMMAND_SPECS:
+            if spec.group != "admin":
+                continue
+            self.assertIn(
+                spec.command,
+                menu_commands,
+                msg=f"/{spec.command} missing from admin menu section",
+            )
 
 
 class MenuKeyboardRegressionTests(unittest.TestCase):
@@ -124,7 +177,7 @@ class MenuKeyboardRegressionTests(unittest.TestCase):
             keyboard = menu_section_keyboard(section, is_admin_or_owner=False)
             for row in keyboard.inline_keyboard:
                 for button in row:
-                    if not button.text.startswith(("/", "🎉 /", "📅 /", "📣 /", "🔎 /", "🔗 /", "👤 /", "➕ /", "🚗 /", "👥 /", "🧾 /", "➖ /", "🔔 /", "✨ /", "🤝 /", "🚫 /", "📈 /", "🏆 /", "❓ /", "✅ /")):
+                    if not button.text.startswith(("/", "🎉 /", "📅 /", "📣 /", "🔎 /", "🔗 /", "✏️ /", "👤 /", "➕ /", "🚗 /", "👥 /", "🧾 /", "➖ /", "🔔 /", "✨ /", "🤝 /", "🚫 /", "📈 /", "🏆 /", "❓ /", "✅ /")):
                         continue
                     command = button.text.split()[-1]
                     self.assertNotIn(command, seen, f"{command} repeats in {section} and {seen.get(command)}")
