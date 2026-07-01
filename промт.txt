@@ -126,6 +126,7 @@ Definition of Done:
 - `/donate` в разделе «Помощь» меню + команда; outsider: `start,donate`
 - `@username` в admin-командах — резолв через БД + approved members
 - `/send_event_card` — короткое сообщение со ссылкой, не дубль карточки
+- `/send_events_list`, `/digest`, `/my_digest` — учитывают `period_end` (активный период); ссылки `t.me/c/<chat>/<thread>/<msg>` для Topics
 - `/random_pairs` — общая карточка в topic, без ЛС участникам
 - FSM в ЛС: `answer_private_intermediate` / `answer_private_final`
 - Callback policy: `CALLBACK_DELETE_WIZARD_MESSAGE` только для wizard
@@ -180,6 +181,7 @@ PostgreSQL: `deploy/postgresql.vds.conf`, лимит 768M. Бот: 512M.
 4. **Команда недоступна** — allowlist, approved_member, лимиты
 5. **/donate без кнопок** — не заданы DONATION_SBERBANK_URL / DONATION_TBANK_URL
 6. **Тексты разъехались** — забыли обновить `design.py` и help
+7. **iOS: ссылка на карточку открывает группу** — в `build_event_message_link` нужен `thread_id` темы; перепубликовать афишу после фикса
 
 ---
 

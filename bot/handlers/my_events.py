@@ -125,7 +125,9 @@ async def my_events_with_period(callback: CallbackQuery):
         dt = datetime.fromisoformat(event["date_time"]).astimezone(TZ)
         date_str = dt.strftime("%d.%m.%Y %H:%M")
         topic_title = topic_name or "Основной чат"
-        event_link = build_event_message_link(GROUP_ID, event.get("message_id"))
+        event_link = build_event_message_link(
+            GROUP_ID, event.get("message_id"), event.get("thread_id")
+        )
         link_text = (
             f'<a href="{event_link}">открыть сообщение</a>'
             if event_link
@@ -306,7 +308,9 @@ async def cmd_send_event_card(message: Message):
         return
     dt = datetime.fromisoformat(event["date_time"]).astimezone(TZ)
     topic_name = await get_topic_name_by_thread_id(event.get("thread_id"))
-    event_link = build_event_message_link(GROUP_ID, event.get("message_id"))
+    event_link = build_event_message_link(
+        GROUP_ID, event.get("message_id"), event.get("thread_id")
+    )
     link_text = (
         f'<a href="{event_link}">открыть основную карточку</a>'
         if event_link

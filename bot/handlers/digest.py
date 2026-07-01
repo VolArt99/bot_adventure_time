@@ -26,7 +26,9 @@ async def enrich_events_with_topic_and_links(events: list[dict]) -> list[dict]:
     for event, topic_name in zip(events, topic_names):
         prepared = dict(event)
         prepared["topic_name"] = topic_name or "Основной чат"
-        prepared["event_link"] = build_event_message_link(GROUP_ID, event.get("message_id"))
+        prepared["event_link"] = build_event_message_link(
+            GROUP_ID, event.get("message_id"), event.get("thread_id")
+        )
         enriched_events.append(prepared)
     return enriched_events
 

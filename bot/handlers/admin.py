@@ -19,8 +19,8 @@ from bot.database import (
 )
 from bot.filters.admin import admin_only
 from bot.keyboards import broadcast_topics_keyboard, period_keyboard
-from bot.utils.helpers import get_user_mention
-from bot.utils.helpers import build_event_message_link
+from bot.texts import format_event_period
+from bot.utils.helpers import get_user_mention, build_event_message_link
 from bot.utils.ui import quote_block, ok
 from bot.utils.topics import get_topics_list_from_db
 from bot.utils.callbacks import finalize_callback
@@ -109,12 +109,16 @@ async def _build_events_broadcast_text(period: str) -> str:
     lines = [quote_block(f"🗓 Актуальная афиша на {period_title}", [])]
     for event in events:
         dt = datetime.fromisoformat(event["date_time"]).astimezone(TZ)
-        event_link = build_event_message_link(GROUP_ID, event.get("message_id"))
+        period_text = format_event_period(dt, event.get("period_end"))
+        date_line = period_text or f"🗓 {dt.strftime('%d.%m.%Y %H:%M')}"
+        event_link = build_event_message_link(
+            GROUP_ID, event.get("message_id"), event.get("thread_id")
+        )
         link_text = f'<a href="{event_link}">открыть сообщение</a>' if event_link else "недоступна"
         lines.append(quote_block(
             str(event["title"]),
             [
-                f"🗓 {dt.strftime('%d.%m.%Y %H:%M')}",
+                date_line,
                 f"📍 {event.get('location') or 'не указано'}",
                 f"🆔 {event['id']}",
                 f"🔗 {link_text}",

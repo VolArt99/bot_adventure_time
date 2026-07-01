@@ -13,8 +13,16 @@ _user_mentions_cache: dict[int, tuple[float, str]] = {}
 _TELEGRAM_USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{5,32}$")
 
 
-def build_event_message_link(chat_id: int, message_id: int | None) -> str | None:
-    """Строит ссылку на сообщение в супергруппе/форуме Telegram."""
+def build_event_message_link(
+    chat_id: int,
+    message_id: int | None,
+    thread_id: int | None = None,
+) -> str | None:
+    """Строит ссылку на сообщение в супергруппе/форуме Telegram.
+
+    Для тем форума (Topics) нужен thread_id: ``t.me/c/<chat>/<thread>/<msg>``.
+    Без него iOS-клиент часто открывает только группу, а не конкретное сообщение.
+    """
     if not message_id:
         return None
 
@@ -26,7 +34,11 @@ def build_event_message_link(chat_id: int, message_id: int | None) -> str | None
     else:
         chat_part = chat_str
 
-    return f"https://t.me/c/{chat_part}/{message_id}"
+    base = f"https://t.me/c/{chat_part}"
+    topic_id = int(thread_id) if thread_id else 0
+    if topic_id > 0:
+        return f"{base}/{topic_id}/{message_id}"
+    return f"{base}/{message_id}"
 
 
 def _strip_control_chars(value: str) -> str:

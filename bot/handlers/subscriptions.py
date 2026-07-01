@@ -202,7 +202,9 @@ async def my_digest_with_period(callback: CallbackQuery):
     }
     for event, topic_name in zip(events, topic_names):
         event["topic_name"] = topic_name or "Основной чат"
-        event["event_link"] = build_event_message_link(GROUP_ID, event.get("message_id"))
+        event["event_link"] = build_event_message_link(
+            GROUP_ID, event.get("message_id"), event.get("thread_id")
+        )
 
     text = format_digest_text(events, usernames, period=period)
     await callback.message.answer(text, parse_mode="HTML", disable_web_page_preview=True)

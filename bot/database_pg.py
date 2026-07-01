@@ -699,6 +699,30 @@ def _parse_event_datetime(value: Any) -> Optional[datetime]:
     return None
 
 
+def _event_matches_period_filter(
+    event_dict: Dict, now: datetime, max_dt: datetime
+) -> bool:
+    """Проверяет, попадает ли активное мероприятие в выбранный период дайджеста/афиши."""
+    event_dt = _parse_event_datetime(event_dict.get("date_time"))
+    if event_dt is None:
+        return False
+    if event_dt.tzinfo is None:
+        event_dt = event_dt.replace(tzinfo=timezone.utc)
+
+    period_end_dt = _parse_event_datetime(event_dict.get("period_end"))
+    if period_end_dt and period_end_dt.tzinfo is None:
+        period_end_dt = period_end_dt.replace(tzinfo=timezone.utc)
+
+    if period_end_dt and period_end_dt > event_dt:
+        if period_end_dt < now:
+            return False
+        if event_dt <= now:
+            return True
+        return event_dt <= max_dt
+
+    return now <= event_dt <= max_dt
+
+
 async def add_participant(
     event_id: int,
     user_id: int,
@@ -1169,12 +1193,7 @@ async def find_events(query: str, period: str = "month", limit: int = 20) -> Lis
 
     for row in result[0].rows:
         event_dict = _normalize_row(row)
-        event_dt = _parse_event_datetime(event_dict.get("date_time"))
-        if event_dt is None:
-            continue
-        if event_dt.tzinfo is None:
-            event_dt = event_dt.replace(tzinfo=timezone.utc)
-        if now <= event_dt <= max_dt:
+        if _event_matches_period_filter(event_dict, now, max_dt):
             events.append(event_dict)
 
     events.sort(key=lambda x: x.get("date_time", ""))
@@ -1591,12 +1610,7 @@ async def get_events_for_digest(period: str = "week") -> List[Dict]:
     events: List[Dict] = []
     for row in result[0].rows:
         event_dict = _normalize_row(row)
-        event_dt = _parse_event_datetime(event_dict.get("date_time"))
-        if event_dt is None:
-            continue
-        if event_dt.tzinfo is None:
-            event_dt = event_dt.replace(tzinfo=timezone.utc)
-        if now <= event_dt <= max_dt:
+        if _event_matches_period_filter(event_dict, now, max_dt):
             events.append(event_dict)
 
     event_ids = {int(event["id"]) for event in events}
@@ -1697,12 +1711,7 @@ async def get_events_for_user_subscriptions(
         event_category = str(event_dict.get("category") or "").strip().lower()
         if event_category not in subscriptions_set:
             continue
-        event_dt = _parse_event_datetime(event_dict.get("date_time"))
-        if event_dt is None:
-            continue
-        if event_dt.tzinfo is None:
-            event_dt = event_dt.replace(tzinfo=timezone.utc)
-        if now <= event_dt <= max_dt:
+        if _event_matches_period_filter(event_dict, now, max_dt):
             events.append(event_dict)
 
     event_ids = {int(event["id"]) for event in events}
