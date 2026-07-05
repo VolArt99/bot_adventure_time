@@ -14,7 +14,7 @@ from bot.utils.topics import get_topics_list_from_db
 from bot.utils.callbacks import finalize_callback
 from bot.utils.ui import answer_private_intermediate
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
-from .shared import CreateEvent, event_step_prompt
+from .shared import CreateEvent, event_step_prompt, show_event_preview
 
 logger = logging.getLogger(__name__)
 router = Router(name=__name__)
@@ -80,6 +80,12 @@ async def process_topic(callback: CallbackQuery, state: FSMContext):
         thread_id = int(thread_id_str) if thread_id_str != "0" else None
 
         await state.update_data(thread_id=thread_id, thread_step_shown=True)
+
+        data = await state.get_data()
+        if data.get("from_copy") and data.get("selected_categories"):
+            await show_event_preview(callback.message, state, callback.from_user.id, callback.bot)
+            await finalize_callback(callback, "✅ Тема выбрана!", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+            return
 
         await state.set_state(CreateEvent.category)
         await answer_private_intermediate(

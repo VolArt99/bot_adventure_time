@@ -278,9 +278,15 @@ async def format_event_message(
             lines.append(f'• <a href="{ycal_link}">Яндекс Календарь</a>')
 
     if carpool_enabled and str(event.get("id", "")).isdigit():
-        from bot.database import get_drivers_with_passengers
+        from bot.database import get_drivers_with_passengers, get_ride_seekers
 
         drivers = await get_drivers_with_passengers(int(event["id"]))
+        ride_seekers = await get_ride_seekers(int(event["id"]))
+        if ride_seekers:
+            seeker_line = " · ".join(
+                mentions_dict.get(uid, f"id{uid}") for uid in ride_seekers
+            )
+            lines.extend(card_section(f"Ищут попутку ({len(ride_seekers)})", [seeker_line]))
         if drivers:
             lines.extend(card_section("🚗 Водители и пассажиры", []))
             for driver in drivers:
@@ -362,4 +368,20 @@ def format_reminder_text(event: Dict, minutes_until: int) -> str:
         f"📅 {date_str}\n"
         f"📍 {location}\n"
         f"⏰ Начинается через {minutes_until} мин"
+    )
+
+
+def format_attendance_prompt_text(event: Dict, hours_before: int) -> str:
+    dt = datetime.fromisoformat(event["date_time"]).astimezone(TZ)
+    date_str = dt.strftime("%d.%m.%Y %H:%M")
+    title = escape(event["title"])
+    location = escape(event.get("location") or "не указано")
+
+    return (
+        f"🗓 <b>Подтвердите участие</b>\n\n"
+        f"Через ~{hours_before} ч стартует:\n"
+        f"📌 <b>{title}</b>\n"
+        f"📅 {date_str}\n"
+        f"📍 {location}\n\n"
+        f"Вы всё ещё идёте? Нажмите кнопку ниже — так организатор видит реальную явку."
     )

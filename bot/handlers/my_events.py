@@ -7,6 +7,7 @@ import pytz
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
+from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.config import TIMEZONE, GROUP_ID
@@ -32,6 +33,7 @@ from bot.utils.callbacks import finalize_callback
 from bot.utils.telegram_errors import ack_callback
 from bot.utils.roles import is_admin_or_owner
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
+from bot.handlers.event_scenarios.create import start_copy_event_wizard
 
 router = Router()
 TZ = pytz.timezone(TIMEZONE)
@@ -143,11 +145,50 @@ async def my_events_with_period(callback: CallbackQuery):
             f"🔗 Ссылка: {link_text}"
         )
 
-    await callback.message.answer("\n".join(text_lines), parse_mode="HTML")
+    builder = InlineKeyboardBuilder()
+    for event in filtered:
+        builder.button(
+            text=f"📋 Копия #{event['id']}",
+            callback_data=f"copy_event_{event['id']}",
+        )
+    builder.adjust(1)
+
+    await callback.message.answer(
+        "\n".join(text_lines),
+        parse_mode="HTML",
+        reply_markup=builder.as_markup(),
+    )
     await finalize_callback(
         callback,
         delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
         skip_answer=True,
+    )
+
+
+@router.callback_query(F.data.startswith("copy_event_"))
+async def copy_event_from_list(callback: CallbackQuery, state: FSMContext):
+    await ack_callback(callback)
+    raw_id = callback.data.removeprefix("copy_event_")
+    if not raw_id.isdigit():
+        await finalize_callback(callback, "Некорректный ID", show_alert=True)
+        return
+
+    event_id = int(raw_id)
+    event = await get_event(event_id)
+    if not event:
+        await finalize_callback(callback, "Мероприятие не найдено", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+    if user_id != event["creator_id"] and not is_admin_or_owner(user_id):
+        await finalize_callback(callback, "Копировать может только создатель или админ", show_alert=True)
+        return
+
+    await start_copy_event_wizard(callback.message, state, event)
+    await finalize_callback(
+        callback,
+        "Шаблон загружен — укажите новую дату",
+        delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
     )
 
 

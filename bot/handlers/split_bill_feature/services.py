@@ -19,6 +19,7 @@ from bot.database import (
 )
 from bot.utils.helpers import get_user_mentions
 from bot.utils.design import BRAND, brand_voice, card_cta, card_header, card_section, money_collection_line
+from bot.utils.notifications import send_private_dm
 from bot.utils.ui import answer_private_final
 
 logger = logging.getLogger(__name__)
@@ -28,20 +29,23 @@ def parse_args(message: Message) -> list[str]:
     return (message.text or "").split()[1:]
 
 
-def split_bill_actions(split_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Присоединиться", callback_data=f"sb_join_{split_id}"),
-                InlineKeyboardButton(text="🚪 Выйти", callback_data=f"sb_leave_{split_id}"),
-            ],
-            [
-                InlineKeyboardButton(text="💸 Оплатил(а)", callback_data=f"sb_paid_{split_id}"),
-                InlineKeyboardButton(text="🔄 Обновить", callback_data=f"sb_status_{split_id}"),
-            ],
-            [InlineKeyboardButton(text="🔒 Закрыть чек", callback_data=f"sb_close_{split_id}")],
-        ]
-    )
+def split_bill_actions(split_id: int, *, show_remind: bool = True) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(text="✅ Присоединиться", callback_data=f"sb_join_{split_id}"),
+            InlineKeyboardButton(text="🚪 Выйти", callback_data=f"sb_leave_{split_id}"),
+        ],
+        [
+            InlineKeyboardButton(text="💸 Оплатил(а)", callback_data=f"sb_paid_{split_id}"),
+            InlineKeyboardButton(text="🔄 Обновить", callback_data=f"sb_status_{split_id}"),
+        ],
+    ]
+    if show_remind:
+        rows.append(
+            [InlineKeyboardButton(text="🔔 Напомнить должникам", callback_data=f"sb_remind_{split_id}")]
+        )
+    rows.append([InlineKeyboardButton(text="🔒 Закрыть чек", callback_data=f"sb_close_{split_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def build_payment_progress_bar(paid_count: int, total_count: int, width: int = 6) -> str:
@@ -209,6 +213,33 @@ async def close_bill_if_ready(split_id: int) -> bool:
     return True
 
 
+async def remind_unpaid_participants(bot, split_id: int) -> tuple[int, int]:
+    """Отправляет напоминания неоплатившим. Возвращает (отправлено, всего должников)."""
+    bill = await get_split_bill(split_id)
+    if not bill or bill.get("status") != "open":
+        return 0, 0
+
+    participants = await get_split_bill_participants(split_id)
+    unpaid = [p for p in participants if not p.get("is_paid")]
+    if not unpaid:
+        return 0, 0
+
+    title = bill.get("title") or f"#{split_id}"
+    share_hint = unpaid[0].get("share_amount")
+    text = (
+        f"🔔 Напоминание по чеку «{title}»\n"
+        f"Пожалуйста, переведите свою долю"
+        + (f" ({share_hint} ₽)" if share_hint else "")
+        + " и отметьте «Оплатил(а)» в карточке."
+    )
+
+    sent = 0
+    for participant in unpaid:
+        if await send_private_dm(bot, int(participant["user_id"]), text, parse_mode=None):
+            sent += 1
+    return sent, len(unpaid)
+
+
 __all__ = [
     "add_split_bill_participant",
     "close_bill_if_ready",
@@ -222,5 +253,6 @@ __all__ = [
     "refresh_split_message",
     "refresh_published_split_message",
     "remove_split_bill_participant",
+    "remind_unpaid_participants",
     "split_bill_actions",
 ]

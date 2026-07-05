@@ -227,13 +227,15 @@ class ParticipationTransitionsTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.handlers.participation.get_participants", new=AsyncMock(return_value=[])),
             patch("bot.handlers.participation.add_participant", new=AsyncMock()) as add_participant,
             patch("bot.handlers.participation.update_event_message", new=AsyncMock()),
+            patch("bot.handlers.participation.safe_callback_answer", new=AsyncMock()) as safe_answer,
         ):
             await participation.join_event(callback)
             await participation.join_event(callback)
 
         self.assertEqual(get_event.await_count, 1)
         add_participant.assert_awaited_once_with(100, 11, "going")
-        self.assertIn("Слишком частые", callback.answer.await_args_list[-1].args[0])
+        rate_limit_call = safe_answer.await_args_list[-1]
+        self.assertIn("Слишком частые", rate_limit_call.args[1])
         participation._participation_callback_hits.clear()
             
     async def test_waitlist_denied_if_already_in_main_list(self):
@@ -243,10 +245,12 @@ class ParticipationTransitionsTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.filters.approved_member.is_member_approved", new=AsyncMock(return_value=True)),
             patch("bot.handlers.participation.get_event", new=AsyncMock(return_value={"id": 100, "status": "active"})),
             patch("bot.handlers.participation.get_main_participants", new=AsyncMock(return_value=[11])),
+            patch("bot.handlers.participation.get_participants", new=AsyncMock(return_value=[])),
+            patch("bot.handlers.participation.finalize_callback", new=AsyncMock()) as finalize_callback,
         ):
             await participation.waitlist_event(callback)
 
-        callback.answer.assert_awaited()
+        finalize_callback.assert_awaited()
 
 
 if __name__ == "__main__":

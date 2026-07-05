@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 _update_latency = LatencyMetrics(name="update_processing", window_size=2000, log_every=100)
 
 
+async def get_update_latency_snapshot() -> dict[str, float | int | str]:
+    return await _update_latency.snapshot()
+
+
 class UpdateLatencyMiddleware(BaseMiddleware):
     async def __call__(
         self,

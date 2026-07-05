@@ -30,6 +30,7 @@ from .services import (
     refresh_split_message,
     refresh_published_split_message,
     remove_split_bill_participant,
+    remind_unpaid_participants,
 )
 
 router = Router(name=__name__)
@@ -432,6 +433,25 @@ async def split_bill_status_callback(callback: CallbackQuery):
     split_id = int(callback.data.rsplit("_", 1)[-1])
     await refresh_split_message(callback, split_id)
     await finalize_callback(callback, "Обновлено")
+
+
+@router.callback_query(F.data.startswith("sb_remind_"))
+@approved_member_callback_only
+async def split_bill_remind_callback(callback: CallbackQuery):
+    split_id = int(callback.data.rsplit("_", 1)[-1])
+    bill = await get_split_bill(split_id)
+    if not bill or bill.get("status") != "open":
+        await finalize_callback(callback, "Чек недоступен", show_alert=True)
+        return
+    if int(bill.get("organizer_id")) != callback.from_user.id:
+        await finalize_callback(callback, "Только организатор", show_alert=True)
+        return
+
+    sent, total = await remind_unpaid_participants(callback.bot, split_id)
+    if total == 0:
+        await finalize_callback(callback, "Все участники уже оплатили", show_alert=True)
+        return
+    await finalize_callback(callback, f"Напоминания: {sent} из {total}")
 
 
 @router.callback_query(F.data.startswith("sb_close_"))

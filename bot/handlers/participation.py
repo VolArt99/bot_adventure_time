@@ -29,11 +29,14 @@ from bot.database import (
     remove_participant,
     get_participants,
     get_main_participants,
+    get_ride_seekers,
     move_from_waitlist,
     add_driver,
     add_passenger,
     get_drivers_with_passengers,
     cancel_event,
+    toggle_ride_seeker,
+    set_attendance_response,
 )
 
 
@@ -96,14 +99,18 @@ async def build_event_text(event_id: int, bot: Bot) -> str:
     if not event:
         return "❌ Мероприятие не найдено."
     from bot.database import get_topic_name_by_thread_id
-    going, waitlist, topic_name, drivers = await asyncio.gather(
+
+    main_ids, waitlist, topic_name, drivers, ride_seekers = await asyncio.gather(
         get_main_participants(event_id),
         get_participants(event_id, "waitlist"),
         get_topic_name_by_thread_id(event.get("thread_id")),
         get_drivers_with_passengers(event_id),
+        get_ride_seekers(event_id),
     )
+    seeker_set = set(ride_seekers)
+    going = [uid for uid in main_ids if uid not in seeker_set]
     responsible_id = event.get("responsible_id") or event["creator_id"]
-    all_users = set(going + waitlist + [event["creator_id"], responsible_id])
+    all_users = set(going + waitlist + ride_seekers + [event["creator_id"], responsible_id])
     for driver in drivers:
         all_users.add(driver["user_id"])
         all_users.update(driver["passengers"])
@@ -127,15 +134,18 @@ async def update_event_message(
         return
 
     from bot.database import get_topic_name_by_thread_id
-    going, waitlist, drivers, topic_name = await asyncio.gather(
+    main_ids, waitlist, drivers, topic_name, ride_seekers = await asyncio.gather(
         get_main_participants(event_id),
         get_participants(event_id, "waitlist"),
         get_drivers_with_passengers(event_id),
         get_topic_name_by_thread_id(event.get("thread_id")),
+        get_ride_seekers(event_id),
     )
+    seeker_set = set(ride_seekers)
+    going = [uid for uid in main_ids if uid not in seeker_set]
 
     responsible_id = event.get("responsible_id") or event["creator_id"]
-    all_users = set(going + waitlist + [event["creator_id"], responsible_id])
+    all_users = set(going + waitlist + ride_seekers + [event["creator_id"], responsible_id])
 
     for driver in drivers:
         all_users.add(driver["user_id"])
@@ -224,6 +234,78 @@ async def waitlist_event(callback: CallbackQuery):
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
     )
+
+
+@router.callback_query(F.data.startswith("seek_ride_"))
+@approved_member_callback_only
+async def seek_ride_toggle(callback: CallbackQuery):
+    event_id = int(callback.data.removeprefix("seek_ride_"))
+    user_id = callback.from_user.id
+    if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="seek_ride"):
+        return
+    event = await get_event(event_id)
+    if not event or event["status"] != "active":
+        await finalize_callback(callback, "Мероприятие уже завершено или отменено", show_alert=True)
+        return
+    if not event.get("carpool_enabled"):
+        await finalize_callback(callback, "Карпулинг не включён", show_alert=True)
+        return
+
+    result = await toggle_ride_seeker(event_id, user_id)
+    messages = {
+        "added": "🙋 Вы в списке «ищу попутку»",
+        "removed": "Сняли отметку «ищу попутку»",
+        "denied": "Недоступно для водителей и пассажиров",
+        "full": "Мест нет. Запишитесь в резерв",
+    }
+    await safe_callback_answer(callback, messages.get(result, "Готово"))
+    if result in {"added", "removed"}:
+        await update_event_message(
+            callback.bot, event_id, event["thread_id"], event["message_id"]
+        )
+
+
+@router.callback_query(F.data.startswith("confirm_attendance_"))
+async def confirm_attendance(callback: CallbackQuery):
+    event_id = int(callback.data.removeprefix("confirm_attendance_"))
+    user_id = callback.from_user.id
+    event = await get_event(event_id)
+    if not event or event["status"] != "active":
+        await finalize_callback(callback, "Мероприятие недоступно", show_alert=True)
+        return
+    main = await get_main_participants(event_id)
+    if user_id not in main:
+        await finalize_callback(callback, "Вы не в списке участников", show_alert=True)
+        return
+    await set_attendance_response(event_id, user_id, "confirmed")
+    await finalize_callback(callback, "✅ Участие подтверждено")
+
+
+@router.callback_query(F.data.startswith("decline_attendance_"))
+async def decline_attendance(callback: CallbackQuery):
+    event_id = int(callback.data.removeprefix("decline_attendance_"))
+    user_id = callback.from_user.id
+    event = await get_event(event_id)
+    if not event or event["status"] != "active":
+        await finalize_callback(callback, "Мероприятие недоступно", show_alert=True)
+        return
+    await set_attendance_response(event_id, user_id, "declined")
+    await remove_participant(event_id, user_id)
+    moved_user = await move_from_waitlist(event_id)
+    if moved_user:
+        from bot.utils.notifications import send_private_dm
+
+        await send_private_dm(
+            callback.bot,
+            moved_user,
+            f"Освободилось место на мероприятии {event['title']}! Вы автоматически добавлены в основной список.",
+            parse_mode=None,
+        )
+    if event.get("message_id"):
+        await update_event_message(
+            callback.bot, event_id, event["thread_id"], event["message_id"]
+        )
+    await finalize_callback(callback, "Вы сняты со списка участников")
 
 
 @router.callback_query(F.data.startswith("driver_"))
@@ -392,13 +474,14 @@ async def decline_event(callback: CallbackQuery):
     # Освободилось место? Перемещаем из резерва
     moved_user = await move_from_waitlist(event_id)
     if moved_user:
-        try:
-            await callback.bot.send_message(
-                moved_user,
-                f"Освободилось место на мероприятии {event['title']}! Вы автоматически добавлены в основной список.",
-            )
-        except Exception as exc:
-            logger.warning("Не удалось уведомить участника из резерва user_id=%s event_id=%s: %s", moved_user, event_id, exc)
+        from bot.utils.notifications import send_private_dm
+
+        await send_private_dm(
+            callback.bot,
+            moved_user,
+            f"Освободилось место на мероприятии {event['title']}! Вы автоматически добавлены в основной список.",
+            parse_mode=None,
+        )
     await safe_callback_answer(callback, brand_voice("participation_decline"))
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]

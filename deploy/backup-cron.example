@@ -1,0 +1,4 @@
+# Пример cron для ежедневного бэкапа в 03:15 (на хосте VDS)
+# Установка: crontab -e и вставить строку ниже (путь поправьте под сервер)
+#
+# 15 3 * * * /opt/bot_adventure_time/deploy/backup_db.sh >> /opt/bot_adventure_time/backups/cron.log 2>&1

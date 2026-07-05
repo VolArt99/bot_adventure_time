@@ -32,8 +32,30 @@ def event_actions(event_id: int, carpool_enabled: bool = False) -> InlineKeyboar
                 InlineKeyboardButton(text="👥 Попутка", callback_data=f"passenger_{event_id}"),
             ]
         )
+        rows.append(
+            [InlineKeyboardButton(text="🙋 Ищу попутку", callback_data=f"seek_ride_{event_id}")]
+        )
     rows.append([InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_{event_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def attendance_confirmation_keyboard(event_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Всё ещё иду",
+                    callback_data=f"confirm_attendance_{event_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Не смогу",
+                    callback_data=f"decline_attendance_{event_id}",
+                )
+            ],
+        ]
+    )
 
 
 def choose_topic_keyboard(topics: list[dict], back_callback: str | None = None) -> InlineKeyboardMarkup:

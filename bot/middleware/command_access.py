@@ -1,10 +1,10 @@
-from collections import defaultdict
 from datetime import datetime, timezone
 import logging
 from typing import Awaitable, Callable
+
 from aiogram import BaseMiddleware
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import Message, TelegramObject
+from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot.config import (
     ADMIN_DAILY_COMMAND_LIMIT,
@@ -14,18 +14,26 @@ from bot.config import (
     OUTSIDER_ALLOWED_COMMANDS,
     OUTSIDER_START_DAILY_LIMIT,
 )
-from bot.database import delete_approved_member, is_member_approved, upsert_approved_member
-from bot.database import record_command_usage
+from bot.database import (
+    delete_approved_member,
+    get_user_daily_command_count,
+    increment_user_daily_command_count,
+    is_member_approved,
+    record_command_usage,
+    upsert_approved_member,
+)
 from bot.utils.roles import is_admin, is_owner
+from bot.utils.telegram_errors import safe_callback_answer
 
 logger = logging.getLogger(__name__)
 
+OUTSIDER_FREE_CALLBACKS = frozenset(
+    {"onboarding_start", "rules_ack", "menu_donate", "donate_back", "menu_home"}
+)
+
 
 class CommandAccessMiddleware(BaseMiddleware):
-    """Роли и лимиты по командам в личных сообщениях."""
-
-    def __init__(self) -> None:
-        self._daily_usage: dict[tuple[int, str], int] = defaultdict(int)
+    """Роли и дневные лимиты для команд и callback в личных сообщениях."""
 
     @staticmethod
     def _extract_command(message: Message) -> str | None:
@@ -44,7 +52,6 @@ class CommandAccessMiddleware(BaseMiddleware):
         state,
         command: str,
     ) -> None:
-        """Сбрасывает активный FSM-сценарий, если пользователь запускает новую команду."""
         if state is None:
             return
 
@@ -52,7 +59,6 @@ class CommandAccessMiddleware(BaseMiddleware):
         if not current_state:
             return
 
-        # Разрешаем продолжать тот же сценарий повторной командой.
         restartable_commands = {"create_event", "split_bill"}
         if command in restartable_commands:
             return
@@ -72,9 +78,24 @@ class CommandAccessMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict,
     ):
-        if not isinstance(event, Message) or event.chat.type != "private":
-            return await handler(event, data)
+        if isinstance(event, Message):
+            if event.chat.type != "private":
+                return await handler(event, data)
+            return await self._handle_private_message(handler, event, data)
 
+        if isinstance(event, CallbackQuery):
+            if not event.message or event.message.chat.type != "private":
+                return await handler(event, data)
+            return await self._handle_private_callback(handler, event, data)
+
+        return await handler(event, data)
+
+    async def _handle_private_message(
+        self,
+        handler: Callable[[TelegramObject, dict], Awaitable],
+        event: Message,
+        data: dict,
+    ):
         user = event.from_user
         if user is None:
             return await handler(event, data)
@@ -82,86 +103,126 @@ class CommandAccessMiddleware(BaseMiddleware):
         command = self._extract_command(event)
         if not command:
             return await handler(event, data)
+
         await self._clear_active_scenario_if_needed(event, data.get("state"), command)
+        return await self._authorize(
+            handler,
+            event,
+            data,
+            user_id=user.id,
+            action=command,
+            reply_target=event,
+        )
 
-
-        user_id = user.id
-        user_is_owner = is_owner(user_id)
-        user_is_admin = is_admin(user_id)
-        is_approved_member = await self._sync_membership(event, user_id)
-
-        # Владелец: полный доступ без лимита.
-        if user_is_owner:
-            await record_command_usage("owner", command)
+    async def _handle_private_callback(
+        self,
+        handler: Callable[[TelegramObject, dict], Awaitable],
+        event: CallbackQuery,
+        data: dict,
+    ):
+        user = event.from_user
+        if user is None:
             return await handler(event, data)
 
-        # Админ: полный доступ, но с дневным лимитом.
+        action = (event.data or "callback").strip()
+        if action in OUTSIDER_FREE_CALLBACKS:
+            return await handler(event, data)
+
+        return await self._authorize(
+            handler,
+            event,
+            data,
+            user_id=user.id,
+            action=f"cb:{action[:80]}",
+            reply_target=event,
+            is_callback=True,
+        )
+
+    async def _authorize(
+        self,
+        handler: Callable[[TelegramObject, dict], Awaitable],
+        event: TelegramObject,
+        data: dict,
+        *,
+        user_id: int,
+        action: str,
+        reply_target: Message | CallbackQuery,
+        is_callback: bool = False,
+    ):
+        user_is_owner = is_owner(user_id)
+        user_is_admin = is_admin(user_id)
+        is_approved_member = await self._sync_membership(reply_target, user_id)
+
+        if user_is_owner:
+            await record_command_usage("owner", action)
+            return await handler(event, data)
+
         if user_is_admin:
             return await self._apply_limit(
                 handler,
                 event,
                 data,
+                user_id=user_id,
                 daily_limit=ADMIN_DAILY_COMMAND_LIMIT,
                 role="admin",
-                command=command,
-                limit_text=(
-                    "⚠️ Дневной лимит команд для админа исчерпан. "
-                    "Попробуйте снова завтра."
-                ),
+                action=action,
+                reply_target=reply_target,
+                is_callback=is_callback,
+                limit_text="⚠️ Дневной лимит команд для админа исчерпан. Попробуйте снова завтра.",
             )
 
-
-        # Участник: только разрешённые команды + дневной лимит.
         if is_approved_member:
-            if command not in MEMBER_ALLOWED_COMMANDS:
-                logger.info(
-                    "access_denied user_id=%s command=%s event_id=%s role=member reason=restricted_command",
-                    user_id,
-                    command,
-                    getattr(event, "message_id", None),
-                )                
-                await event.answer("❌ Эта команда доступна только админу или владельцу.")
-                return
+            if not is_callback:
+                command = action
+                if command not in MEMBER_ALLOWED_COMMANDS:
+                    logger.info(
+                        "access_denied user_id=%s command=%s role=member reason=restricted_command",
+                        user_id,
+                        command,
+                    )
+                    await self._reply(reply_target, "❌ Эта команда доступна только админу или владельцу.")
+                    return
             return await self._apply_limit(
                 handler,
                 event,
                 data,
+                user_id=user_id,
                 daily_limit=MEMBER_DAILY_COMMAND_LIMIT,
                 role="member",
-                command=command,
-                limit_text=(
-                    "⚠️ Дневной лимит команд исчерпан. "
-                    "Попробуйте снова завтра."
-                ),
+                action=action,
+                reply_target=reply_target,
+                is_callback=is_callback,
+                limit_text="⚠️ Дневной лимит команд исчерпан. Попробуйте снова завтра.",
             )
 
-        # Остальные пользователи: ограниченный набор команд с отдельным лимитом.
-        if command not in OUTSIDER_ALLOWED_COMMANDS:
-            logger.info(
-                "access_denied user_id=%s command=%s event_id=%s role=outsider reason=command_not_allowed",
-                user_id,
-                command,
-                getattr(event, "message_id", None),
-            )
-            await event.answer(
-                "❌ До подтверждения доступа вам доступна только команда /start."
-            )
-            return
+        if not is_callback:
+            command = action
+            if command not in OUTSIDER_ALLOWED_COMMANDS:
+                logger.info(
+                    "access_denied user_id=%s command=%s role=outsider reason=command_not_allowed",
+                    user_id,
+                    command,
+                )
+                await self._reply(
+                    reply_target,
+                    "❌ До подтверждения доступа вам доступна только команда /start.",
+                )
+                return
 
         return await self._apply_limit(
             handler,
             event,
             data,
+            user_id=user_id,
             daily_limit=OUTSIDER_START_DAILY_LIMIT,
             role="outsider",
-            command=command,
-            limit_text=(
-                "⚠️ Дневной лимит команд до одобрения исчерпан. "
-                "Попробуйте снова завтра."
-            ),
+            action=action,
+            reply_target=reply_target,
+            is_callback=is_callback,
+            limit_text="⚠️ Дневной лимит команд до одобрения исчерпан. Попробуйте снова завтра.",
         )
 
-    async def _sync_membership(self, event: Message, user_id: int) -> bool:
+    async def _sync_membership(self, event: Message | CallbackQuery, user_id: int) -> bool:
         is_approved_member = await is_member_approved(user_id)
         if not hasattr(event, "bot") or GROUP_ID == 0:
             return is_approved_member
@@ -171,50 +232,60 @@ class CommandAccessMiddleware(BaseMiddleware):
         except (TelegramForbiddenError, TelegramBadRequest):
             in_group = False
 
+        from_user = event.from_user
         if is_approved_member and not in_group:
             await delete_approved_member(user_id)
             return False
 
-        if in_group and not is_approved_member:
+        if in_group and not is_approved_member and from_user:
             full_name = " ".join(
-                filter(None, [event.from_user.first_name, event.from_user.last_name])
+                filter(None, [from_user.first_name, from_user.last_name])
             ).strip()
             await upsert_approved_member(
                 user_id,
-                event.from_user.username,
+                from_user.username,
                 full_name,
                 intro_status="pending",
             )
             return True
 
         return is_approved_member
-    
+
     async def _apply_limit(
         self,
         handler: Callable[[TelegramObject, dict], Awaitable],
-        event: Message,
+        event: TelegramObject,
         data: dict,
         *,
+        user_id: int,
         daily_limit: int,
         role: str,
-        command: str,
+        action: str,
+        reply_target: Message | CallbackQuery,
+        is_callback: bool,
         limit_text: str,
     ):
         today = self._today_key()
-        usage_key = (event.from_user.id, today)
-        current_usage = self._daily_usage[usage_key]
-
+        current_usage = await get_user_daily_command_count(user_id, today)
         if current_usage >= daily_limit:
-            try:
-                await event.answer(limit_text)
-            except TelegramForbiddenError:
-                logger.info(
-                    "limit_reply_skipped user_id=%s command=%s reason=blocked",
-                    event.from_user.id,
-                    command,
-                )
+            await self._reply(reply_target, limit_text, is_callback=is_callback)
             return
 
-        self._daily_usage[usage_key] = current_usage + 1
-        await record_command_usage(role, command)
+        await increment_user_daily_command_count(user_id, today)
+        await record_command_usage(role, action)
         return await handler(event, data)
+
+    @staticmethod
+    async def _reply(
+        target: Message | CallbackQuery,
+        text: str,
+        *,
+        is_callback: bool = False,
+    ) -> None:
+        try:
+            if isinstance(target, CallbackQuery) or is_callback:
+                await safe_callback_answer(target, text, show_alert=True)  # type: ignore[arg-type]
+            else:
+                await target.answer(text)
+        except TelegramForbiddenError:
+            logger.info("limit_reply_skipped reason=blocked")

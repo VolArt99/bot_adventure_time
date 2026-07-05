@@ -43,6 +43,12 @@ services:
       postgres:
         condition: service_healthy
     mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "python", "-m", "bot.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
     # Бот работает в polling-режиме и не требует входящих HTTP-портов
     # ports: []
 

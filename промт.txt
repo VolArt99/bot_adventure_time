@@ -26,11 +26,12 @@ Definition of Done:
 
 ### Пользовательские потоки
 1. `/start` → онбординг → одобрение владельцем → вход в группу.
-2. `/create_event` в ЛС → превью → публикация карточки в тему; `/edit_event` — правка полей после публикации.
-3. Участники: `✅ В путь!` / `⏳ В резерве` / `❌ В другой раз`.
-4. Напоминания (APScheduler) + weekly digest.
-5. `/donate` — ссылки на сборы (доступно и не-участникам).
-6. Админы: отчёты, темы, random-пары, sync members, контроль «Рассказа о себе».
+2. `/create_event` в ЛС → превью → публикация карточки в тему; push подписчикам категории; `/edit_event` — правка полей.
+3. Участники: `✅ В путь!` / `⏳ В резерве` / `❌ В другой раз`; `🚗 Ищу попутку`; подтверждение участия за 24 ч до события.
+4. Напоминания (APScheduler) + weekly digest + restore jobs после рестарта.
+5. `/my_events` → «📋 Копия #ID» — шаблон из прошлого мероприятия.
+6. `/donate` — ссылки на сборы (доступно и не-участникам).
+7. Админы: отчёты, темы, random-пары, sync members, контроль «Рассказа о себе».
 
 ---
 
@@ -43,39 +44,48 @@ Definition of Done:
 - Docker Compose, long polling (`python -m bot.main`)
 - Опционально: OpenWeatherMap (`WEATHER_API_KEY`)
 
-**Не используется:** YDB, Cloud Functions, webhook entrypoint.
+**Не используется:** YDB, Cloud Functions, webhook entrypoint, таблица `reminder_jobs`.
 
 ---
 
 ## Карта репозитория
 
 ### Корень
-- `docker-compose.yml`, `Dockerfile` — VDS-деплой (лимиты RAM, тюнинг PG)
-- `deploy/` — `deploy.sh`, `backup_db.sh`, `postgresql.vds.conf`, `VDS_SETUP.md`, systemd unit
+- `docker-compose.yml`, `Dockerfile` — VDS-деплой (лимиты RAM, healthcheck postgres + bot)
+- `deploy/` — `deploy.sh`, `backup_db.sh`, `restore_db.sh`, `verify_backup.sh`, `backup-cron.example`, `postgresql.vds.conf`, `VDS_SETUP.md`, systemd unit
+- `backups/` — pg_dump (в git только `.gitkeep`)
 - `.env.example` — шаблон env
 - `README.md`, `промт.txt` — документация
-- `tests/` — pytest
+- `tests/` — pytest (82+ тестов)
 
 ### `bot/`
-- `main.py` — polling, lazy init, error handler → owner
-- `config.py` — env, роли, лимиты, donate URLs
+- `main.py` — polling, lazy init, graceful shutdown (scheduler + pool), error handler → owner
+- `config.py` — env, роли, лимиты, тихие часы, attendance, мониторинг, heartbeat
 - `commands.py` — реестр `COMMAND_SPECS`
-- `database.py` → `database_pg.py` — вся работа с БД
+- `database.py`, `database_pg.py` — фасады → `bot/db/`
+- `db/` — PostgreSQL-слой по доменам: `schema.py`, `events.py`, `participants.py`, `attendance.py`, `split_bill.py`, `subscriptions.py`, `usage.py`, …
+- `healthcheck.py` — CLI для Docker healthcheck
 - `db_pool.py` — asyncpg pool
 - `fsm_storage_pg.py` — FSM в таблице `fsm_states`
-- `texts.py` — карточки событий, дайджесты, напоминания
+- `texts.py` — карточки событий, дайджесты, напоминания, блок «ищу попутку»
 - `keyboards.py` — inline-клавиатуры
 - `utils/design.py` — **BRAND_VOICE**, **SEASON_COPY**, **WIZARD_PROMPTS**, визуальные helpers
+- `utils/notifications.py` — ЛС с тихими часами
+- `utils/category_notify.py` — push подписчикам категории
+- `utils/health.py` — heartbeat-файл
+- `utils/monitoring.py` — периодические метрики + алерт owner при высоком p95
+- `utils/scheduler.py` — напоминания, attendance confirm, digest
 
 ### Handlers
 - `common_feature/` — start, help, menu, status, donate, onboarding, approve/reject
-- `event_scenarios/` — FSM create/edit/category/carpool
-- `participation.py` — join/waitlist/decline, carpool
-- `split_bill_feature/` — split bill FSM + карточка
-- `digest.py`, `subscriptions.py`, `my_events.py`, `roadmap.py`, `admin.py`
+- `event_scenarios/` — FSM create/edit/category/carpool; `create.py` — копия события
+- `participation.py` — join/waitlist/decline, carpool, ride_seeker, confirm/decline attendance
+- `my_events.py` — список + кнопка копии
+- `split_bill_feature/` — split bill FSM + карточка + remind debtors
+- `digest.py`, `subscriptions.py`, `roadmap.py`, `admin.py`
 
 ### Middleware / filters
-- `command_access.py` — роли и лимиты в ЛС
+- `command_access.py` — роли и дневные лимиты в ЛС (команды **и** callback); счётчик в `user_command_usage_daily`
 - `topic_discoverer.py` — автообнаружение тем форума
 - `latency_metrics.py` — p50/p95/p99
 
@@ -102,27 +112,32 @@ Definition of Done:
 ## Must-have функционал
 
 1. Онбординг + approve/reject (текст `🎉🗺️ Дверь открыта!` при одобрении; уведомление владельцу при `/start` участника с pending-интро)
-2. `/create_event` + превью + публикация; `/edit_event` — редактирование полей
-3. Участие: в путь / резерв / в другой раз
+2. `/create_event` + превью + публикация; push подписчикам категории; `/edit_event` — редактирование полей
+3. Участие: в путь / резерв / в другой раз; «ищу попутку»; подтверждение за 24 ч
 4. Карпулинг
 5. Напоминания + restore после рестарта
 6. Дайджесты и подписки
 7. Random 1:1
-8. Split bill
+8. Split bill (автоподтягивание going, напоминание должникам)
 9. `/donate` (URL-кнопки Сбер / Т-Банк)
-10. Тех-алерты owner при необработанных ошибках
+10. Копия прошлого события из `/my_events`
+11. Тихие часы для ЛС-уведомлений
+12. Graceful shutdown + Docker healthcheck + мониторинг p95
+13. Тех-алерты owner при необработанных ошибках
 
 ---
 
 ## Актуальные UX-детали
 
-- Кнопки карточки: `✅ В путь!`, `⏳ В резерве`, `❌ В другой раз`
+- Кнопки карточки: `✅ В путь!`, `⏳ В резерве`, `❌ В другой раз`, `🚗 Ищу попутку`
+- За `ATTENDANCE_CONFIRM_HOURS` (по умолчанию 24) до события — ЛС «всё ещё иду» с кнопками confirm/decline
+- `/my_events`: «📋 Копия #ID» → мастер создания с предзаполнением
 - Превью: кнопка `🗺️ Публикуем!`
 - `/menu`: сезонная шапка, слоган «Куда отправимся сегодня?»; `/help` и кнопки меню синхронизированы с `commands.py`
-- Карточка мероприятия: **Hero + детали** (без дублирования категорий/цены); погода в день события
+- Карточка мероприятия: **Hero + детали** (без дублирования категорий/цены); погода в день события; блок карпулинга с ride_seeker
 - Быстрые шаблоны: выбор «оставить из шаблона» / «ввести своё» для названия и описания
 - Мастер событий: «↩️ Назад» на шагах темы, категорий и превью
-- Split-bill: `money_collection_line` + чек-лист ✅/⏳
+- Split-bill: `money_collection_line` + чек-лист ✅/⏳ + «🔔 Напомнить должникам»
 - `/donate` в разделе «Помощь» меню + команда; outsider: `start,donate`
 - `@username` в admin-командах — резолв через БД + approved members
 - `/send_event_card` — короткое сообщение со ссылкой, не дубль карточки
@@ -130,6 +145,7 @@ Definition of Done:
 - `/random_pairs` — общая карточка в topic, без ЛС участникам
 - FSM в ЛС: `answer_private_intermediate` / `answer_private_final`
 - Callback policy: `CALLBACK_DELETE_WIZARD_MESSAGE` только для wizard
+- ЛС-уведомления откладываются в тихие часы (`QUIET_HOURS_START`–`QUIET_HOURS_END`)
 
 ---
 
@@ -141,6 +157,7 @@ Definition of Done:
 - **Outsider** — `start`, `donate` (по умолчанию)
 
 Центр: `middleware/command_access.py` + `config.py` + `bot/commands.py`
+Дневные лимиты хранятся в PostgreSQL (`user_command_usage_daily`), действуют на команды и callback в ЛС.
 
 ---
 
@@ -151,10 +168,11 @@ Definition of Done:
 3. HTML — экранировать пользовательский ввод.
 4. HTTP — timeout + exception handling.
 5. Бизнес-логику не дублировать — shared/services/utils.
-6. Нетривиальные сценарии — тест.
-7. Изменил UX → `design.py` + help + README + промт + тесты.
-8. Новые фразы — в `BRAND_VOICE`, не в handlers.
-9. Не коммитить секреты (.env, токены).
+6. Новый домен БД — отдельный модуль в `bot/db/`, экспорт через `bot/db/__init__.py`.
+7. Нетривиальные сценарии — тест.
+8. Изменил UX → `design.py` + help + README + промт + тесты.
+9. Новые фразы — в `BRAND_VOICE`, не в handlers.
+10. Не коммитить секреты (.env, токены).
 
 ---
 
@@ -167,9 +185,18 @@ Definition of Done:
 cp .env.example .env
 # BOT_TOKEN, GROUP_ID, OWNER_ID, POSTGRES_PASSWORD, DONATION_* ...
 docker compose up -d --build
+docker compose ps   # health: postgres + bot
 ```
 
 PostgreSQL: `deploy/postgresql.vds.conf`, лимит 768M. Бот: 512M.
+
+Бэкапы:
+```bash
+./deploy/backup_db.sh
+./deploy/verify_backup.sh backups/adventure_time_*.sql.gz
+./deploy/restore_db.sh backups/adventure_time_*.sql.gz   # осознанный откат
+```
+Cron-пример: `deploy/backup-cron.example`, retention: `BACKUP_RETENTION_DAYS`.
 
 ---
 
@@ -177,11 +204,13 @@ PostgreSQL: `deploy/postgresql.vds.conf`, лимит 768M. Бот: 512M.
 
 1. **FSM завис** — onboarding_guard, middleware, state filters
 2. **Не публикуется в тему** — права бота, `message_thread_id`, GROUP_ID
-3. **Нет данных в БД** — DATABASE_URL, postgres healthy, AUTO_INIT_DB
-4. **Команда недоступна** — allowlist, approved_member, лимиты
+3. **Нет данных в БД** — DATABASE_URL / PG*, postgres healthy, AUTO_INIT_DB
+4. **Команда недоступна** — allowlist, approved_member, лимиты (в т.ч. callback)
 5. **/donate без кнопок** — не заданы DONATION_SBERBANK_URL / DONATION_TBANK_URL
 6. **Тексты разъехались** — забыли обновить `design.py` и help
 7. **iOS: ссылка на карточку открывает группу** — в `build_event_message_link` нужен `thread_id` темы; перепубликовать афишу после фикса
+8. **bot unhealthy** — heartbeat не обновляется; смотреть `docker compose logs bot`, `BOT_HEARTBEAT_PATH`
+9. **ImportError из bot.database** — символ не в `bot/db/__init__.py` `__all__`
 
 ---
 
@@ -192,3 +221,13 @@ PostgreSQL: `deploy/postgresql.vds.conf`, лимит 768M. Бот: 512M.
 - [ ] `design.py` при новых фразах
 - [ ] README + промт (+ VDS_SETUP при деплое)
 - [ ] Описание PR: что / зачем / как проверено
+
+---
+
+## Changelog (кратко, для ориентира)
+
+- `bot/db/` вместо монолита `database_pg.py`
+- Лимиты в PG + callbacks; индексы; DROP `reminder_jobs`
+- Attendance confirm, ride_seeker, copy event, category push, quiet hours
+- Split bill: auto-going, remind debtors
+- Graceful shutdown, healthcheck, monitoring, backup restore/verify

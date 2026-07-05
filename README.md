@@ -39,12 +39,15 @@ Telegram-бот для приватного сообщества: меропри
 1. Telegram update поступает в `bot.main`.
 2. `Dispatcher` пропускает update через middleware/фильтры.
 3. Нужный handler выполняет бизнес-логику.
-4. Данные читаются/пишутся через `bot.database` → `bot.database_pg`.
-5. Для событий и уведомлений могут ставиться задания в APScheduler.
+4. Данные читаются/пишутся через `bot.database` → пакет `bot/db/` (слой совместимости: `bot/database_pg.py`).
+5. Для событий и уведомлений ставятся задания в APScheduler (напоминания, подтверждение участия, digest, мониторинг).
 
 ### Хранение состояния
 - FSM хранится в таблице `fsm_states` (PostgreSQL), чтобы сценарии не терялись при рестартах.
+- Дневные лимиты команд — в таблице `user_command_usage_daily` (переживают рестарт процесса).
 
+### Graceful shutdown
+При остановке процесса (`docker compose stop`, SIGTERM) закрываются APScheduler и пул PostgreSQL (`dp.shutdown` в `bot/main.py`).
 ---
 
 ## Структура репозитория (подробно)
@@ -56,10 +59,14 @@ Telegram-бот для приватного сообщества: меропри
 ├── deploy/
 │   ├── deploy.sh
 │   ├── backup_db.sh
+│   ├── restore_db.sh
+│   ├── verify_backup.sh
+│   ├── backup-cron.example
 │   ├── bot-adventure-time.service
 │   ├── postgresql.vds.conf
 │   ├── server_hardening.example.sh
 │   └── VDS_SETUP.md
+├── backups/                         # pg_dump (не в git, кроме .gitkeep)
 ├── requirements.txt
 ├── промт.txt
 ├── README.md
@@ -80,8 +87,19 @@ Telegram-бот для приватного сообщества: меропри
     ├── texts.py
     ├── keyboards.py
     ├── check_env.py
-    ├── database.py
-    ├── database_pg.py
+    ├── database.py                  # фасад: from bot.db import *
+    ├── database_pg.py               # backward-compat re-export
+    ├── healthcheck.py               # CLI для Docker healthcheck
+    ├── db/                          # PostgreSQL-слой (модули по доменам)
+    │   ├── schema.py                # init_db, индексы, миграции колонок
+    │   ├── events.py
+    │   ├── participants.py
+    │   ├── attendance.py
+    │   ├── members.py
+    │   ├── split_bill.py
+    │   ├── subscriptions.py
+    │   ├── usage.py
+    │   └── …
     ├── db_pool.py
     ├── fsm_storage_pg.py
     ├── middleware/
@@ -114,12 +132,14 @@ Telegram-бот для приватного сообщества: меропри
     │       ├── category.py
     │       └── carpool.py
     ├── commands.py                # единый реестр команд
-    ├── db_pool.py
-    ├── fsm_storage_pg.py
     └── utils/
         ├── __init__.py
         ├── design.py              # BRAND_VOICE, SEASON_COPY, визуальные primitives
         ├── scheduler.py
+        ├── notifications.py         # ЛС с тихими часами
+        ├── category_notify.py         # push по подпискам на категории
+        ├── health.py                # heartbeat для healthcheck
+        ├── monitoring.py              # периодические метрики + алерты owner
         ├── weather.py
         ├── metrics.py
         ├── topics.py
@@ -145,27 +165,29 @@ Telegram-бот для приватного сообщества: меропри
 - Инициализация бота, dispatcher, FSM storage.
 - Регистрация роутеров и middleware.
 - Режим polling.
-- Ленивая инициализация БД/тем/планировщика.
+- Ленивая инициализация БД/тем/планировщика/heartbeat/мониторинга.
+- Graceful shutdown: планировщик + пул PG.
 - Глобальный error-handler с уведомлением владельца в ЛС и троттлингом повторов ошибок.
 
 #### `bot/config.py`
 - Чтение env-переменных.
 - Роли/лимиты/набор разрешённых команд.
-- Таймзона и параметры дайджеста/напоминаний.
+- Таймзона, дайджест, напоминания, тихие часы, подтверждение участия, мониторинг.
 
-#### `bot/database_pg.py`
-- Создание схемы PostgreSQL.
-- Все CRUD-операции по событиям, участникам, темам, random 1:1, split bill и т.д.
-- Агрегации/отчёты/поисковые запросы.
+#### `bot/db/` и `bot/database.py`
+- `bot/database.py` и `bot/database_pg.py` — фасады; логика в пакете `bot/db/`.
+- `schema.py` — создание таблиц, индексы, `DROP` legacy-таблиц.
+- Доменные модули: события, участники, карпулинг, attendance, split bill, подписки, usage и т.д.
 
 #### `bot/handlers/`
 - `common_feature/handlers.py` — `/start`, `/help`, `/menu`, `/status`, `/donate`, onboarding, owner approve/reject, служебные команды.
 - `common_feature/services.py` — проверка участия в группе, notify owner и т.д.
 - `common_feature/views.py` — help, menu, onboarding-тексты (через `brand_voice` / `season_copy`).
 - `events.py` + `event_scenarios/*` — FSM создания/редактирования/категоризации событий.
-- `participation.py` — кнопки участия (в путь / резерв / в другой раз, карпулинг).
+- `participation.py` — кнопки участия (в путь / резерв / в другой раз, карпулинг, «ищу попутку», подтверждение участия за 24ч).
+- `my_events.py` — список событий + кнопка «📋 Копия #ID» (шаблон из прошлого мероприятия).
 - `split_bill_feature/handlers.py` — FSM и callback-хендлеры split bill.
-- `split_bill_feature/services.py` — формат карточки, шкала сбора, чек-лист оплат.
+- `split_bill_feature/services.py` — формат карточки, шкала сбора, чек-лист оплат, напоминание должникам, автоподтягивание участников «going».
 - `roadmap.py` — статистика, top, find, random optin/optout/pairs.
 - `digest.py`, `subscriptions.py`, `my_events.py`, `admin.py` — профильные сценарии.
 
@@ -175,7 +197,7 @@ Telegram-бот для приватного сообщества: меропри
 - Сезонная шапка меню и дайджеста (зима / весна / лето / осень).
 
 #### `bot/middleware/`
-- `command_access.py` — role-based доступ и лимиты команд.
+- `command_access.py` — role-based доступ и дневные лимиты в ЛС (команды **и** callback); счётчик в `user_command_usage_daily`.
 - `topic_discoverer.py` — автообновление справочника тем по входящим апдейтам.
 - `latency_metrics.py` — сбор времени обработки update (p50/p95/p99 через периодические логи).
 
@@ -183,7 +205,11 @@ Telegram-бот для приватного сообщества: меропри
 - Фильтры прав (admin/registered/restricted command).
 
 #### `bot/utils/`
-- `scheduler.py` — постановка/восстановление напоминаний и периодических задач.
+- `scheduler.py` — напоминания, подтверждение участия за 24ч, digest, restore jobs.
+- `notifications.py` — отправка ЛС с учётом тихих часов (`QUIET_HOURS_*`).
+- `category_notify.py` — push подписчикам категории при публикации события.
+- `monitoring.py` — периодический снимок метрик; алерт owner при высоком p95.
+- `health.py` — heartbeat-файл для Docker healthcheck.
 - `weather.py` — интеграция с погодой, HTTP session reuse, TTL-кеш и rate-limit.
 - `metrics.py` — лёгкий in-memory сбор latency-метрик (p50/p95/p99).
 - `event_links.py` — карты и календарные ссылки (Google/Яндекс).
@@ -208,7 +234,7 @@ Telegram-бот для приватного сообщества: меропри
 
 ### Мероприятия
 - `/create_event` — пошаговое создание события (в т.ч. выбор формата цены: общая/с человека/бесплатно; место проведения можно пропустить кнопкой).
-- `/my_events` — ваши события.
+- `/my_events` — ваши события; кнопка «📋 Копия #ID» — шаблон из прошлого мероприятия.
 - `<code>/find_events &lt;запрос&gt;</code>` — поиск по активным событиям.
 - `<code>/edit_event &lt;event_id&gt;</code>` — редактирование полей карточки (создатель, ответственный или админ).
 - `<code>/set_responsible &lt;event_id&gt; &lt;user_id|@username&gt;</code>` — сменить ответственного (создатель/админ).
@@ -239,6 +265,8 @@ Telegram-бот для приватного сообщества: меропри
   - банк (Сбер / Т-банк / Альфа / Яндекс / свой вариант),
   - ФИО получателя.
 - Управление присоединением/оплатой/статусом/закрытием делается кнопками в карточке чека.
+- При создании участники «going» из связанного мероприятия подтягиваются автоматически.
+- Кнопка «🔔 Напомнить должникам» — ЛС тем, кто ещё не отметил оплату.
 - `/split_bill_add <id> <user_id|@username>` / `/split_bill_remove <id> <user_id>` — ручное управление участниками.
 
 ### Сервисные/админские
@@ -247,7 +275,9 @@ Telegram-бот для приватного сообщества: меропри
 ### UX и визуальное оформление
 - Тон голоса бота — приключенческий (Adventure Time community), без копирования персонажей мультсериала. Тексты централизованы в `bot/utils/design.py` (`BRAND_VOICE`, `SEASON_COPY`, `WIZARD_PROMPTS`).
 - `/menu` — сезонная шапка (❄️/🌸/☀️/🍂), слоган «Куда отправимся сегодня?», разделитель `═ emoji ═`.
-- Кнопки участия в карточке: `✅ В путь!` / `⏳ В резерве` / `❌ В другой раз`.
+- Кнопки участия в карточке: `✅ В путь!` / `⏳ В резерве` / `❌ В другой раз`; `🚗 Ищу попутку` — отдельный статус в блоке карпулинга.
+- За 24 ч до события (настраивается `ATTENDANCE_CONFIRM_HOURS`) участникам «going» приходит ЛС с подтверждением «всё ещё иду».
+- При публикации события подписчики категории получают push в ЛС (с учётом тихих часов `QUIET_HOURS_*`).
 - Карточка мероприятия (layout **Hero + детали**): шапка с названием, статусом и местами; дата и локация отдельными строками; блок «О мероприятии» (категории, длительность, стоимость — один раз); списки «Идут (N)» и «Резерв»; погода в день события (`WEATHER_API_KEY`).
 - Дайджест: «Афиша приключений» + сезонное интро; пустой период — «Тишина в Ланде Ооо…».
 - Split-bill: шкала сбора `████░░░░ 1500/3000 ₽` + чек-лист оплат ✅/⏳.
@@ -297,6 +327,11 @@ Telegram-бот для приватного сообщества: меропри
 - `OUTSIDER_ALLOWED_COMMANDS` — по умолчанию `start,donate`
 - `DB_POOL_MIN_SIZE`, `DB_POOL_MAX_SIZE` — пул PostgreSQL (по умолчанию 1/5, оптимально для 2 ГиБ RAM)
 - `DIGEST_DAY_OF_WEEK`, `DIGEST_HOUR` — расписание weekly digest
+- `QUIET_HOURS_START`, `QUIET_HOURS_END` — тихие часы для ЛС-уведомлений (по умолчанию 23:00–08:00, `TIMEZONE`)
+- `ATTENDANCE_CONFIRM_HOURS` — за сколько часов до события спрашивать подтверждение участия (по умолчанию 24)
+- `MONITORING_P95_ALERT_MS`, `MONITORING_INTERVAL_MINUTES` — периодический снимок метрик и алерт owner при высоком p95
+- `BOT_HEARTBEAT_PATH`, `BOT_HEARTBEAT_INTERVAL_SECONDS` — heartbeat для Docker healthcheck (`python -m bot.healthcheck`)
+- `BACKUP_RETENTION_DAYS` — срок хранения `pg_dump` в `./backups/` (по умолчанию 14)
 - Лимиты и списки команд — см. `config.py`
 
 ### Производительность и безопасность
@@ -352,16 +387,15 @@ python -m compileall -q bot tests
 
 ## Что обновилось в последних изменениях
 
-- **Афиша и дайджесты:** мероприятия с периодом действия (`period_end`) попадают в списки, пока период не закончился; ссылки на карточки в темах форума включают `thread_id` (исправление deep-link на iOS).
-- **VDS-деплой:** Docker Compose + PostgreSQL 16, polling, тюнинг PG для 2 ГиБ RAM, лимиты памяти контейнеров.
-- **Удалён legacy:** YDB, Cloud Functions/webhook, `dynamic_handler.py`, codegen из YDB.
-- **Брендинг:** `BRAND_VOICE` / `SEASON_COPY` в `design.py`; приключенческий тон в меню, онбординге, мастерах, дайджесте.
-- **`/donate`:** кнопки-ссылки на сборы Сбербанка и Т-Банка.
-- **Карточки:** цветовая полоска категории, progress bar мест, погода в день события, сезонная шапка меню.
-- **Split-bill:** шкала сбора средств + чек-лист оплат.
-- **Участие:** кнопки «В путь!» / «В резерве» / «В другой раз».
-- **Онбординг:** при одобрении — приветственный текст с эмодзи (без стикера).
-- Документация по настройке сервера: `deploy/VDS_SETUP.md`.
+- **Слой БД:** монолитный `database_pg.py` разбит на пакет `bot/db/`; фасады `bot/database.py` и `bot/database_pg.py` сохранены для совместимости.
+- **Лимиты в PostgreSQL:** дневные лимиты команд/callback в ЛС (`user_command_usage_daily`), переживают рестарт.
+- **Участие:** подтверждение «всё ещё иду» за 24 ч; статус «🚗 Ищу попутку»; копия прошлого события из `/my_events`.
+- **Уведомления:** тихие часы для ЛС; push подписчикам категории при публикации события.
+- **Split bill:** автоподтягивание участников «going»; кнопка «🔔 Напомнить должникам».
+- **Эксплуатация:** graceful shutdown (scheduler + pool); Docker healthcheck бота; heartbeat + мониторинг p95 с алертом owner.
+- **Бэкапы:** `backup_db.sh` с `--clean --if-exists`, sha256, лог; скрипты `restore_db.sh` и `verify_backup.sh`; пример cron `backup-cron.example`.
+- **Индексы** на `participants`, `events`, `fsm_states`, `user_category_subscriptions`; удалена legacy-таблица `reminder_jobs`.
+- Прежние изменения: афиша с `period_end` и `thread_id` для iOS; VDS Docker Compose; брендинг в `design.py`; `/donate`; split-bill шкала сбора; документация `deploy/VDS_SETUP.md`.
 
 ---
 
@@ -412,6 +446,8 @@ docker compose logs -f bot
 
 PostgreSQL слушает только внутреннюю docker-сеть. Бот не открывает входящие HTTP-порты.
 
+**Healthcheck:** у `postgres` — `pg_isready`; у `bot` — `python -m bot.healthcheck` (проверка свежести heartbeat-файла). Статус: `docker compose ps`.
+
 Тюнинг PostgreSQL для 2 ГиБ RAM: `deploy/postgresql.vds.conf` (монтируется в контейнер). Параметры: `shared_buffers=128MB`, `max_connections=20` и др. — не повышайте `shared_buffers` до 256 МБ без нагрузочного теста.
 
 Подробная пошаговая инструкция: **`deploy/VDS_SETUP.md`**.
@@ -422,7 +458,16 @@ PostgreSQL слушает только внутреннюю docker-сеть. Б�
 ./deploy/backup_db.sh
 ```
 
-Скрипт сохраняет `pg_dump` в `./backups/` и удаляет бэкапы старше 14 дней.
+Скрипт сохраняет `pg_dump --clean --if-exists` в `./backups/`, пишет sha256 и лог; удаляет файлы старше `BACKUP_RETENTION_DAYS` (по умолчанию 14). Пример cron: `deploy/backup-cron.example`.
+
+Проверка целостности и восстановление:
+
+```bash
+./deploy/verify_backup.sh backups/adventure_time_YYYYMMDD_HHMMSS.sql.gz
+./deploy/restore_db.sh backups/adventure_time_YYYYMMDD_HHMMSS.sql.gz
+```
+
+`restore_db.sh` останавливает бота, восстанавливает БД и поднимает сервисы снова — используйте только при осознанном откате данных.
 
 ### systemd (опционально)
 
@@ -452,8 +497,11 @@ PostgreSQL слушает только внутреннюю docker-сеть. Б�
   - проверить `GROUP_ID`, права бота в группе/теме, наличие forum topics.
 - Нет данных в БД:
   - проверить `DATABASE_URL` / `PG*`, что PostgreSQL доступен из контейнера `bot`.
-- Нет напоминаний:
-  - проверить старт scheduler и восстановление jobs.
+- Нет напоминаний / нет подтверждения участия:
+  - проверить старт scheduler и восстановление jobs;
+  - `ATTENDANCE_CONFIRM_HOURS` и что до события осталось меньше этого окна.
+- Контейнер `bot` в статусе `unhealthy`:
+  - `docker compose logs bot`; проверить heartbeat (`BOT_HEARTBEAT_PATH`) и что процесс не завис.
 - На iPhone ссылка «открыть сообщение» в афише ведёт в группу, а не на карточку:
   - убедиться, что у события сохранены `message_id` и `thread_id` (тема форума);
   - ссылка должна быть вида `t.me/c/<chat>/<thread>/<message>`;
@@ -476,6 +524,8 @@ PostgreSQL слушает только внутреннюю docker-сеть. Б�
 - Метрики времени обработки update: `p50/p95/p99` (middleware `latency_metrics`).
 - Метрики времени PostgreSQL-запросов: `p50/p95/p99` + warning для медленных запросов (`slow_pg_query_ms > 300`).
 - Инициализированный размер пула PostgreSQL (`DB_POOL_MAX_SIZE`).
+- Периодический снимок метрик (`bot/utils/monitoring.py`); при p95 выше `MONITORING_P95_ALERT_MS` — алерт владельцу в ЛС.
+- Docker healthcheck бота: heartbeat-файл (`BOT_HEARTBEAT_PATH`), проверка `python -m bot.healthcheck`.
 
 Как читать эти метрики:
 - `p50` — типичная задержка.
@@ -489,8 +539,8 @@ PostgreSQL слушает только внутреннюю docker-сеть. Б�
 
 ## Troubleshooting
 
-### Ошибка `cannot import name get_user_id_by_username from bot.database`
-Причина: отсутствует функция в `bot/database_pg.py`, а `bot/database.py` реэкспортирует symbols через `from bot.database_pg import *`.
+### Ошибка `cannot import name … from bot.database`
+Причина: символ не экспортирован из `bot/db/__init__.py` или устаревший импорт из `bot.database_pg`.
 
 Проверка:
 ```bash

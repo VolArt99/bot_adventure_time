@@ -63,6 +63,18 @@ TIMEZONE = os.getenv("TIMEZONE", "Europe/Moscow")  # Москва = СПб
 # Настройки напоминаний (в секундах)
 REMINDER_INTERVALS = [86400, 10800, 7200, 3600, 1800]  # 1 день, 3ч, 2ч, 1ч, 30мин
 
+# Подтверждение участия за N часов до старта (интерактивное «всё ещё иду»)
+ATTENDANCE_CONFIRM_HOURS = int(os.getenv("ATTENDANCE_CONFIRM_HOURS", "24"))
+ATTENDANCE_CONFIRM_SECONDS = ATTENDANCE_CONFIRM_HOURS * 3600
+
+# Мониторинг: порог p95 (мс) и интервал отчёта владельцу
+MONITORING_P95_ALERT_MS = int(os.getenv("MONITORING_P95_ALERT_MS", "2000"))
+MONITORING_INTERVAL_MINUTES = int(os.getenv("MONITORING_INTERVAL_MINUTES", "60"))
+
+# Heartbeat для Docker healthcheck
+BOT_HEARTBEAT_PATH = os.getenv("BOT_HEARTBEAT_PATH", "/tmp/bot_heartbeat")
+BOT_HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("BOT_HEARTBEAT_INTERVAL_SECONDS", "60"))
+
 # Настройки дайджеста
 DIGEST_DAY_OF_WEEK = int(os.getenv("DIGEST_DAY_OF_WEEK", "1"))  # Понедельник (1=Пн, 7=Вс)
 DIGEST_HOUR = int(os.getenv("DIGEST_HOUR", "10"))  # 10:00
@@ -70,6 +82,13 @@ if not 1 <= DIGEST_DAY_OF_WEEK <= 7:
     raise ValueError("DIGEST_DAY_OF_WEEK должен быть в диапазоне 1..7 (1=Пн, 7=Вс).")
 if not 0 <= DIGEST_HOUR <= 23:
     raise ValueError("DIGEST_HOUR должен быть в диапазоне 0..23.")
+
+# Тихие часы для ЛС (не слать ночью); по умолчанию 23:00–08:00 в TIMEZONE
+QUIET_HOURS_START = int(os.getenv("QUIET_HOURS_START", "23"))
+QUIET_HOURS_END = int(os.getenv("QUIET_HOURS_END", "8"))
+if not 0 <= QUIET_HOURS_START <= 23 or not 0 <= QUIET_HOURS_END <= 23:
+    raise ValueError("QUIET_HOURS_START и QUIET_HOURS_END должны быть в диапазоне 0..23.")
+
 
 def validate_runtime_config(*, production: bool | None = None) -> None:
     """Проверяет критичные настройки для production-режима."""

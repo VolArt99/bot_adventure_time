@@ -393,7 +393,7 @@ mkdir -p /opt/bot_adventure_time/backups
 crontab -e
 ```
 
-Строка (03:00 по времени **сервера** — Helsinki):
+Строка (03:00 по времени **сервера** — Helsinki) — готовый пример в `deploy/backup-cron.example`:
 
 ```
 0 3 * * * /opt/bot_adventure_time/deploy/backup_db.sh >> /opt/bot_adventure_time/backups/backup.log 2>&1
@@ -407,13 +407,24 @@ bash deploy/backup_db.sh
 ls -lh backups/
 ```
 
+Скрипт пишет `pg_dump --clean --if-exists`, sha256 (`.sha256`), лог в `backups/backup.log` и удаляет файлы старше `BACKUP_RETENTION_DAYS` (по умолчанию 14).
+
+Проверка целостности:
+
+```bash
+bash deploy/verify_backup.sh backups/adventure_time_YYYYMMDD_HHMMSS.sql.gz
+```
+
 ### 7.3. Восстановление из бэкапа (если понадобится)
+
+**Предупреждение:** восстановление перезапишет текущую БД. Остановите бота и используйте скрипт:
 
 ```bash
 cd /opt/bot_adventure_time
-gunzip -c backups/adventure_time_YYYYMMDD_HHMMSS.sql.gz | \
-  docker compose exec -T postgres psql -U bot adventure_time
+bash deploy/restore_db.sh backups/adventure_time_YYYYMMDD_HHMMSS.sql.gz
 ```
+
+Скрипт останавливает контейнер `bot`, восстанавливает PostgreSQL и поднимает сервисы снова.
 
 ---
 
@@ -435,6 +446,7 @@ docker compose logs --tail=50 bot
 ```bash
 cd /opt/bot_adventure_time
 
+docker compose ps               # health: postgres (pg_isready) + bot (heartbeat)
 docker compose logs -f bot      # логи бота
 docker compose logs -f postgres # логи БД
 docker stats                    # RAM/CPU контейнеров
@@ -444,6 +456,10 @@ free -h                         # swap
 ```
 
 В логах бота: `slow_pg_query_ms` (>300 мс), `update_processing` / `pg_query` (p50/p95/p99).
+
+Периодически (`MONITORING_INTERVAL_MINUTES`, по умолчанию 60) бот логирует снимок метрик; при p95 выше `MONITORING_P95_ALERT_MS` (по умолчанию 2000 мс) владелец получает алерт в ЛС.
+
+Если `docker compose ps` показывает `bot` как `unhealthy` — проверьте heartbeat (`BOT_HEARTBEAT_PATH`, по умолчанию `/tmp/bot_heartbeat`) и логи процесса.
 
 Перезапуск:
 

@@ -8,11 +8,12 @@ from aiogram.types import Message
 
 from bot.config import GROUP_ID, TIMEZONE
 from bot.database import create_event, get_topic_name_by_thread_id, update_event_message_id
-from bot.keyboards import event_actions
+from bot.constants import dedupe_categories
+from bot.keyboards import event_actions, event_preview_keyboard
 from bot.texts import format_event_message
 from bot.utils.helpers import get_user_mention
 from bot.utils.weather import get_weather
-from bot.utils.ui import answer_private_final
+from bot.utils.ui import answer_private_final, answer_private_intermediate
 from bot.utils.design import brand_voice, wizard_prompt
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,45 @@ async def build_event_payload(
     }
 
 
+async def show_event_preview(
+    message: Message,
+    state: FSMContext,
+    user_id: int,
+    bot,
+) -> None:
+    """Показывает превью карточки перед публикацией."""
+    data = await state.get_data()
+    selected_categories = dedupe_categories(data.get("selected_categories", []))
+    if not selected_categories:
+        raise ValueError("selected_categories_required")
+    category_value = ",".join(selected_categories)
+    event_data = await build_event_payload(state, category_value, user_id)
+    organizer_mention = await get_user_mention(user_id, bot)
+    responsible_id = event_data.get("responsible_id", user_id)
+    responsible_mention = await get_user_mention(responsible_id, bot)
+    topic_name = await get_topic_name_by_thread_id(event_data.get("thread_id"))
+    preview_text = await format_event_message(
+        {**event_data, "id": "preview"},
+        [],
+        [],
+        {user_id: organizer_mention, responsible_id: responsible_mention},
+        topic_name=topic_name,
+        organizer_mention=organizer_mention,
+        responsible_mention=responsible_mention,
+    )
+    await state.set_state(CreateEvent.preview)
+    await answer_private_intermediate(
+        message,
+        state,
+        event_step_prompt(
+            CreateEvent.preview.state,
+            f"{brand_voice('event_preview_intro')}\n\n{preview_text}",
+        ),
+        reply_markup=event_preview_keyboard(),
+        parse_mode="HTML",
+    )
+
+
 async def finalize_event_creation(
     message: Message,
     state: FSMContext,
@@ -147,8 +187,18 @@ async def finalize_event_creation(
         await update_event_message_id(event_id, data.get("thread_id"), sent_msg.message_id)
 
         from bot.utils.scheduler import schedule_reminders_for_event
+        from bot.utils.category_notify import notify_category_subscribers
 
         await schedule_reminders_for_event(event_id, bot)
+        await notify_category_subscribers(
+            bot,
+            event_id=event_id,
+            title=event_data["title"],
+            category_value=category_value,
+            creator_id=creator_user_id,
+            message_id=sent_msg.message_id,
+            thread_id=data.get("thread_id"),
+        )
 
         link = f"https://t.me/c/{str(GROUP_ID).replace('-100', '')}/{sent_msg.message_id}"
         await answer_private_final(

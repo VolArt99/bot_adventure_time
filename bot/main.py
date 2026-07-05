@@ -132,7 +132,10 @@ def _register_handlers() -> None:
     """Регистрирует роутеры и middleware один раз."""
 
     from bot.middleware.command_access import CommandAccessMiddleware
-    dp.message.middleware(CommandAccessMiddleware())
+
+    access_middleware = CommandAccessMiddleware()
+    dp.message.middleware(access_middleware)
+    dp.callback_query.middleware(access_middleware)
 
     dp.include_router(common.router)
     dp.include_router(events.router)
@@ -196,12 +199,31 @@ async def ensure_initialized(*, for_polling: bool = False) -> None:
             await restore_jobs(bot)
             if GROUP_ID:
                 await schedule_digest(bot, GROUP_ID)
-            logger.info("Планировщик, напоминания и weekly digest восстановлены")
+            from bot.utils.health import start_heartbeat
+            from bot.utils.monitoring import schedule_monitoring
+
+            start_heartbeat()
+            schedule_monitoring(bot)
+            logger.info("Планировщик, напоминания, weekly digest, heartbeat и мониторинг восстановлены")
             _polling_initialized = True
+
+async def _on_shutdown() -> None:
+    from bot.db_pool import close_pool
+    from bot.utils.scheduler import scheduler
+    from bot.utils.health import stop_heartbeat
+
+    await stop_heartbeat()
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+        logger.info("Планировщик остановлен")
+    await close_pool()
+    logger.info("Пул PostgreSQL закрыт")
+
 
 async def main():
     logger.info("Запуск бота...")
     await ensure_initialized(for_polling=True)
+    dp.shutdown.register(_on_shutdown)
 
     # Polling несовместим с активным webhook (остаток старого деплоя / BotFather).
     await bot.delete_webhook(drop_pending_updates=True)

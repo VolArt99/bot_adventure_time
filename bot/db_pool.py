@@ -171,3 +171,7 @@ async def fetchval(query: str, parameters: dict[str, Any] | None = None) -> Any:
     finally:
         elapsed = time.perf_counter() - started
         await _pg_latency_metrics.observe(elapsed)
+
+
+async def get_pg_latency_snapshot() -> dict[str, float | int | str]:
+    return await _pg_latency_metrics.snapshot()

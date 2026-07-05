@@ -30,18 +30,29 @@ class LatencyMetrics:
             if self._count % self._log_every != 0:
                 return
 
-            values = sorted(self._samples)
-            p50 = self._percentile(values, 0.50) * 1000
-            p95 = self._percentile(values, 0.95) * 1000
-            p99 = self._percentile(values, 0.99) * 1000
+            snapshot = self._build_snapshot_locked()
             logger.info(
                 "latency_metrics name=%s samples=%s p50_ms=%.2f p95_ms=%.2f p99_ms=%.2f",
-                self.name,
-                len(values),
-                p50,
-                p95,
-                p99,
+                snapshot["name"],
+                snapshot["samples"],
+                snapshot["p50_ms"],
+                snapshot["p95_ms"],
+                snapshot["p99_ms"],
             )
+
+    def _build_snapshot_locked(self) -> dict[str, float | int | str]:
+        values = sorted(self._samples)
+        return {
+            "name": self.name,
+            "samples": len(values),
+            "p50_ms": self._percentile(values, 0.50) * 1000,
+            "p95_ms": self._percentile(values, 0.95) * 1000,
+            "p99_ms": self._percentile(values, 0.99) * 1000,
+        }
+
+    async def snapshot(self) -> dict[str, float | int | str]:
+        async with self._lock:
+            return self._build_snapshot_locked()
 
 
 class Timer:

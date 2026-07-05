@@ -3,6 +3,9 @@ from datetime import datetime
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+import pytz
+
+from bot.config import TIMEZONE
 
 from bot.constants import CARPOOL_HELP_TEXT, EVENT_CATEGORY_GROUPS, dedupe_categories
 from bot.filters.registered_user import registered_user_only
@@ -27,6 +30,7 @@ from bot.texts import format_event_message
 from bot.utils.helpers import get_user_mention
 
 router = Router(name=__name__)
+TZ = pytz.timezone(TIMEZONE)
 
 async def start_create_event_wizard(message: Message, state: FSMContext) -> None:
     await state.set_state(CreateEvent.title)
@@ -35,6 +39,53 @@ async def start_create_event_wizard(message: Message, state: FSMContext) -> None
         state,
         event_step_prompt(CreateEvent.title.state, wizard_prompt("title")),
         reply_markup=cancel_keyboard(),
+    )
+
+
+async def start_copy_event_wizard(message: Message, state: FSMContext, source_event: dict) -> None:
+    """Запускает мастер создания с полями из прошлого мероприятия (дата — новая)."""
+    categories = [
+        item.strip()
+        for item in str(source_event.get("category") or "").split(",")
+        if item.strip()
+    ]
+    price_total = source_event.get("price_total") or 0
+    price_per_person = source_event.get("price_per_person") or 0
+    if price_total and float(price_total) > 0:
+        price_mode = "total"
+    elif price_per_person and float(price_per_person) > 0:
+        price_mode = "per_person"
+    else:
+        price_mode = "free"
+
+    period_end = source_event.get("period_end")
+    await state.update_data(
+        title=source_event.get("title", ""),
+        description=source_event.get("description"),
+        duration_minutes=source_event.get("duration_minutes"),
+        location=source_event.get("location"),
+        price_mode=price_mode,
+        price_total=price_total if price_mode == "total" else None,
+        price_per_person=price_per_person if price_mode == "per_person" else None,
+        participant_limit=source_event.get("participant_limit"),
+        carpool_enabled=bool(source_event.get("carpool_enabled")),
+        selected_categories=categories,
+        period_mode="range" if period_end else "none",
+        period_end=period_end,
+        from_copy=True,
+        copy_source_id=source_event.get("id"),
+    )
+    await state.set_state(CreateEvent.datetime)
+    example = datetime.now(TZ).strftime("%d.%m.%Y %H:%M")
+    await answer_private_intermediate(
+        message,
+        state,
+        event_step_prompt(
+            CreateEvent.datetime.state,
+            "📋 Шаблон загружен из прошлого мероприятия.\n"
+            f"{wizard_prompt('datetime')}\nПример: {example}",
+        ),
+        reply_markup=cancel_keyboard(back_callback="event_back"),
     )
 
 
@@ -477,7 +528,26 @@ async def process_datetime(message: Message, state: FSMContext):
         )
         return
 
-    await state.update_data(date_time=dt.isoformat(), period_end=None)
+    await state.update_data(date_time=dt.isoformat())
+    data = await state.get_data()
+    if data.get("from_copy"):
+        topics = await get_topics_list_from_db()
+        if topics:
+            await state.set_state(CreateEvent.thread)
+            await answer_private_intermediate(
+                message,
+                state,
+                event_step_prompt(CreateEvent.thread.state, "🗂 Выберите, где опубликовать копию мероприятия:"),
+                reply_markup=choose_topic_keyboard(topics, back_callback="event_back"),
+            )
+            return
+        await state.update_data(thread_id=None)
+        from .shared import show_event_preview
+
+        await show_event_preview(message, state, message.from_user.id, message.bot)
+        return
+
+    await state.update_data(period_end=None)
     await state.set_state(CreateEvent.period_mode)
     await answer_private_intermediate(
         message,
