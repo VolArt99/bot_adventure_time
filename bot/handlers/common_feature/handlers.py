@@ -62,6 +62,7 @@ from .views import (
     build_donation_unavailable_text,
     build_group_member_bot_access_denied_text,
     build_group_rules_text,
+    build_group_rules_full_text,
     build_help_text,
     build_main_menu_text,
     build_menu_section_text,
@@ -121,6 +122,12 @@ async def cmd_start(message: Message):
 async def onboarding_start(callback: CallbackQuery):
     await callback.message.answer(build_group_rules_text(), reply_markup=rules_ack_keyboard())
     await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+
+
+@router.callback_query(F.data == "rules_full")
+async def rules_full(callback: CallbackQuery):
+    await callback.message.answer(build_group_rules_full_text(), parse_mode="HTML")
+    await finalize_callback(callback, "Полные правила")
 
 
 @router.callback_query(F.data == "rules_ack")
@@ -396,11 +403,15 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
         return
 
     if action == "subscriptions":
-        from bot.handlers.subscriptions import _subscriptions_keyboard
+        from bot.handlers.subscriptions import SUBSCRIPTIONS_INTRO, _subscriptions_keyboard
         from bot.database import get_user_category_subscriptions
 
         selected = await get_user_category_subscriptions(user_id)
-        await callback.message.answer("📬 Выберите группы категорий для персонального дайджеста:", reply_markup=_subscriptions_keyboard(selected))
+        await callback.message.answer(
+            SUBSCRIPTIONS_INTRO,
+            parse_mode="HTML",
+            reply_markup=_subscriptions_keyboard(selected),
+        )
         await finalize_callback(callback, "Открыто")
         return
 
@@ -452,7 +463,7 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
 
     if action in {"roles", "usage_stats"}:
         if not is_admin_or_owner:
-            await finalize_callback(callback, "Недостаточно прав", show_alert=True)
+            await finalize_callback(callback, "🔒 Эта команда доступна только организаторам и администраторам", show_alert=True)
             return
         if action == "roles":
             await callback.message.answer(
@@ -479,7 +490,7 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
 
     if action in {"admin_report", "send_events_list", "random_pairs"}:
         if not is_admin_or_owner:
-            await finalize_callback(callback, "Недостаточно прав", show_alert=True)
+            await finalize_callback(callback, "🔒 Эта команда доступна только организаторам и администраторам", show_alert=True)
             return
         if action == "admin_report":
             from bot.database import get_admin_report_metrics
@@ -553,7 +564,7 @@ async def menu_command_callback(callback: CallbackQuery):
         user_id,
         is_approved_member=is_approved,
     ):
-        await finalize_callback(callback, "Недостаточно прав для этой команды", show_alert=True)
+        await finalize_callback(callback, "🔒 Эта команда доступна только организаторам и администраторам", show_alert=True)
         return
 
     text = build_command_action_text(command_key)

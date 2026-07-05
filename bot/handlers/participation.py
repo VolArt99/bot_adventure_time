@@ -7,7 +7,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, Message
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
-from bot.keyboards import event_actions
+from bot.keyboards import event_actions, event_delete_confirm_keyboard, event_manage_keyboard
 from bot.texts import format_event_message
 from bot.utils.helpers import get_username_by_id, get_user_mentions
 from bot.config import GROUP_ID
@@ -47,6 +47,14 @@ class CarpoolState(StatesGroup):
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+def resolve_participation_status(user_id: int, going: list[int], waitlist: list[int]) -> str | None:
+    if user_id in going:
+        return "going"
+    if user_id in waitlist:
+        return "waitlist"
+    return None
 
 
 PARTICIPATION_CALLBACK_RATE_LIMIT_SECONDS = 1.5
@@ -162,6 +170,7 @@ async def update_event_message(
         topic_name=topic_name,
         organizer_mention=mentions.get(event["creator_id"]),
         responsible_mention=mentions.get(responsible_id),
+        show_cta=False,
     )
     try:
         await bot.edit_message_text(
@@ -520,9 +529,49 @@ async def decline_event(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("delete_"))
-async def delete_event(callback: CallbackQuery):
-    event_id = parse_callback_split_int(callback.data, index=1, min_parts=2)
+@router.callback_query(F.data.startswith("delete_confirm_"))
+async def delete_event_confirm(callback: CallbackQuery):
+    event_id = parse_callback_suffix_int(callback.data, prefix="delete_confirm_")
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
+    event = await get_event(event_id)
+    if not event:
+        await finalize_callback(callback, "Мероприятие не найдено", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+    is_creator = user_id == event["creator_id"]
+    is_admin = is_admin_or_owner(user_id)
+    if not is_creator and not is_admin:
+        await finalize_callback(callback, "Удалять мероприятие может только организатор или администратор.", show_alert=True)
+        return
+
+    await callback.message.answer(
+        "⚠️ <b>Удалить мероприятие навсегда?</b>\n"
+        "Карточка в группе будет удалена, участники не получат отдельного уведомления.",
+        parse_mode="HTML",
+        reply_markup=event_delete_confirm_keyboard(event_id),
+    )
+    await finalize_callback(callback)
+
+
+@router.callback_query(F.data.startswith("delete_cancel_"))
+async def delete_event_cancel(callback: CallbackQuery):
+    event_id = parse_callback_suffix_int(callback.data, prefix="delete_cancel_")
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        await callback.message.edit_reply_markup(reply_markup=event_manage_keyboard(event_id))
+    await finalize_callback(callback, "Удаление отменено")
+
+
+@router.callback_query(F.data.startswith("delete_execute_"))
+async def delete_event_execute(callback: CallbackQuery):
+    event_id = parse_callback_suffix_int(callback.data, prefix="delete_execute_")
     if event_id is None:
         await finalize_callback(callback, "Некорректные данные", show_alert=True)
         return
@@ -540,6 +589,11 @@ async def delete_event(callback: CallbackQuery):
 
     await safe_callback_answer(callback, "Мероприятие удалено")
     await cancel_event(event_id)
+
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
 
     try:
         await callback.bot.delete_message(

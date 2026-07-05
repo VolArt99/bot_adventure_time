@@ -122,7 +122,7 @@ class CommonCommandFlowTests(unittest.IsolatedAsyncioTestCase):
             await common.cmd_start(message)
 
         args, kwargs = message.answer.await_args
-        self.assertIn("/menu", args[0])
+        self.assertIn("меню", args[0].lower())
         self.assertEqual(kwargs["reply_markup"].inline_keyboard[0][0].callback_data, "menu_home")
 
         

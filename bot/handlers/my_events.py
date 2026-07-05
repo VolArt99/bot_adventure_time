@@ -25,7 +25,7 @@ from bot.database import (
     get_user_id_by_username,
     add_participant,
 )
-from bot.keyboards import event_actions, period_keyboard
+from bot.keyboards import event_private_keyboard, my_events_keyboard, period_keyboard
 
 from bot.texts import format_event_message
 from bot.utils.helpers import get_user_mention, build_event_message_link, parse_int_arg
@@ -181,8 +181,15 @@ async def my_events_with_period(callback: CallbackQuery):
     await callback.message.answer(
         "\n".join(text_lines),
         parse_mode="HTML",
-        reply_markup=builder.as_markup(),
+        reply_markup=my_events_keyboard(filtered),
     )
+    if len(filtered) <= 10:
+        copy_markup = builder.as_markup()
+        if copy_markup.inline_keyboard:
+            await callback.message.answer(
+                "📋 Быстрое копирование прошлых встреч:",
+                reply_markup=copy_markup,
+            )
     await finalize_callback(
         callback,
         delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
@@ -238,6 +245,12 @@ async def show_my_event(callback: CallbackQuery):
         get_participants(event_id, "waitlist"),
     )
 
+    user_id = callback.from_user.id
+    from bot.handlers.participation import resolve_participation_status
+
+    participation_status = resolve_participation_status(user_id, going, waitlist)
+    can_manage, _ = await _can_manage_event(event_id, user_id)
+
     responsible_id = event.get("responsible_id") or event["creator_id"]
     all_users = sorted(set(going + waitlist + [event["creator_id"], responsible_id]))
     mention_values = await asyncio.gather(
@@ -254,10 +267,17 @@ async def show_my_event(callback: CallbackQuery):
         mentions,
         organizer_mention=organizer_mention,
         responsible_mention=responsible_mention,
+        show_event_id=can_manage,
+        show_cta=False,
     )
     await callback.message.answer(
         text,
-        reply_markup=event_actions(event_id, event["carpool_enabled"]),
+        reply_markup=event_private_keyboard(
+            event_id,
+            bool(event["carpool_enabled"]),
+            participation_status=participation_status,
+            can_manage=can_manage,
+        ),
         parse_mode="HTML",
     )
     await finalize_callback(
@@ -265,6 +285,26 @@ async def show_my_event(callback: CallbackQuery):
         delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
         skip_answer=True,
     )
+
+
+@router.callback_query(F.data.startswith("manage_edit_"))
+async def manage_edit_event(callback: CallbackQuery, state: FSMContext):
+    from bot.handlers.event_scenarios.edit import _can_edit_event, _show_edit_menu
+
+    event_id = parse_callback_suffix_int(callback.data, prefix="manage_edit_")
+    if event_id is None:
+        await finalize_callback(callback, "Некорректный ID", show_alert=True)
+        return
+    allowed, event = await _can_edit_event(event_id, callback.from_user.id)
+    if not event:
+        await finalize_callback(callback, "Мероприятие не найдено", show_alert=True)
+        return
+    if not allowed:
+        await finalize_callback(callback, "🔒 Редактировать может только организатор, ответственный или админ", show_alert=True)
+        return
+    await state.update_data(edit_event_id=event_id, edit_selected_categories=[])
+    await _show_edit_menu(callback.message, state, event_id)
+    await finalize_callback(callback, "Редактирование открыто", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
 @router.message(Command("set_responsible"))

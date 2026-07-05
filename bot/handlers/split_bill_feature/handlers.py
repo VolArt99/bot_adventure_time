@@ -11,7 +11,7 @@ import pytz
 from bot.database import is_member_approved
 from bot.database import get_approved_member_ids, get_user_events, get_user_id_by_username
 from bot.config import TIMEZONE
-from bot.keyboards import cancel_keyboard, choose_topic_keyboard
+from bot.keyboards import cancel_keyboard, choose_topic_keyboard, split_bill_close_confirm_keyboard
 from bot.utils.topics import get_topics_list_from_db
 from bot.utils.ui import answer_private_intermediate
 from bot.utils.helpers import parse_int_arg
@@ -454,7 +454,7 @@ async def split_bill_remind_callback(callback: CallbackQuery):
     await finalize_callback(callback, f"Напоминания: {sent} из {total}")
 
 
-@router.callback_query(F.data.startswith("sb_close_"))
+@router.callback_query(F.data.regexp(r"^sb_close_\d+$"))
 @approved_member_callback_only
 async def split_bill_close_callback(callback: CallbackQuery):
     split_id = int(callback.data.rsplit("_", 1)[-1])
@@ -463,7 +463,35 @@ async def split_bill_close_callback(callback: CallbackQuery):
         await finalize_callback(callback, "Чек не найден", show_alert=True)
         return
     if int(bill.get("organizer_id")) != callback.from_user.id:
-        await finalize_callback(callback, "Только организатор", show_alert=True)
+        await finalize_callback(callback, "🔒 Закрыть чек может только организатор", show_alert=True)
+        return
+
+    await callback.message.edit_reply_markup(reply_markup=split_bill_close_confirm_keyboard(split_id))
+    await finalize_callback(
+        callback,
+        "После закрытия нельзя отметить оплату",
+        show_alert=True,
+    )
+
+
+@router.callback_query(F.data.startswith("sb_close_cancel_"))
+@approved_member_callback_only
+async def split_bill_close_cancel_callback(callback: CallbackQuery):
+    split_id = int(callback.data.rsplit("_", 1)[-1])
+    await refresh_split_message(callback, split_id)
+    await finalize_callback(callback, "Отменено")
+
+
+@router.callback_query(F.data.startswith("sb_close_confirm_"))
+@approved_member_callback_only
+async def split_bill_close_confirm_callback(callback: CallbackQuery):
+    split_id = int(callback.data.rsplit("_", 1)[-1])
+    bill = await get_split_bill(split_id)
+    if not bill:
+        await finalize_callback(callback, "Чек не найден", show_alert=True)
+        return
+    if int(bill.get("organizer_id")) != callback.from_user.id:
+        await finalize_callback(callback, "🔒 Закрыть чек может только организатор", show_alert=True)
         return
 
     if not await close_bill_if_ready(split_id):

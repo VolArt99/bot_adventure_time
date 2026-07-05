@@ -10,6 +10,7 @@ from bot.utils.design import (
     EVENT_CATEGORY_TONES,
     brand_voice,
     card_cta,
+    card_progress_bar,
     card_section,
     season_copy,
     seasonal_card_divider,
@@ -24,6 +25,16 @@ from bot.utils.event_links import (
 )
 
 TZ = pytz.timezone(TIMEZONE)
+
+GROUP_RULES_SHORT_TEXT = (
+    "Наша цель — находить друзей и встречаться!\n\n"
+    "✅ Делимся идеями, знакомимся, обсуждаем планы\n"
+    "🚫 Политика, рознь, реклама без разрешения, флуд\n"
+    "⚠️ Наказания: предупреждение → мут → бан\n"
+    "📝 Разместите «Рассказ о себе» в теме группы\n"
+    "👤 Укажите имя и фото (если ещё нет в Telegram)\n"
+    "⏳ Срок — 7 дней с момента вступления"
+)
 
 GROUP_RULES_TEXT = (
     "Прежде чем вступить в группу, пожалуйста, ознакомься с правилами и целями.\n\n"
@@ -189,6 +200,9 @@ async def format_event_message(
     topic_name: str | None = None,
     organizer_mention: str | None = None,
     responsible_mention: str | None = None,
+    *,
+    show_cta: bool = False,
+    show_event_id: bool = False,
 ) -> str:
     dt = datetime.fromisoformat(event["date_time"]).astimezone(TZ)
     date_str = dt.strftime("%d.%m.%Y")
@@ -226,9 +240,11 @@ async def format_event_message(
     waitlist_inline = " · ".join(mentions_dict.get(uid, f"id{uid}") for uid in waitlist_list) or "—"
 
     status_badges = event_status_badges(event, going_count, waitlist_count)
+    seat_bar = card_progress_bar(going_count, limit_value if limit_value else None)
     lines = [
         f"{BRAND['event']} <b>{title}</b>",
-        f"{status_badges} · 🎟 {going_count}/{limit_str}",
+        status_badges,
+        f"🎟 {seat_bar} {going_count}/{limit_str}",
         "",
         f"📅 {date_str}, {time_str}",
         f"📍 {location}",
@@ -252,7 +268,8 @@ async def format_event_message(
         about_lines.append(f"🚀 Тема: {escape(topic_name)}")
     if weather:
         about_lines.append(weather)
-    about_lines.append(f"🆔 ID: <code>{event['id']}</code>")
+    if show_event_id:
+        about_lines.append(f"🆔 ID: <code>{event['id']}</code>")
     lines.extend(card_section("О мероприятии", about_lines))
 
     lines.extend(card_section(f"Идут ({going_count})", [going_inline]))
@@ -264,18 +281,19 @@ async def format_event_message(
     dgis_link = build_2gis_maps_link(event.get("location"))
     gcal_link = build_google_calendar_link(event)
     ycal_link = build_yandex_calendar_link(event)
-    if maps_link or y_maps_link or dgis_link or gcal_link or ycal_link:
-        lines.extend(card_section("🔗 Полезные ссылки", []))
-        if maps_link:
-            lines.append(f'• <a href="{maps_link}">Google Maps</a>')
-        if y_maps_link:
-            lines.append(f'• <a href="{y_maps_link}">Яндекс Карты</a>')
-        if dgis_link:
-            lines.append(f'• <a href="{dgis_link}">2ГИС</a>')
-        if gcal_link:
-            lines.append(f'• <a href="{gcal_link}">Google Calendar</a>')
-        if ycal_link:
-            lines.append(f'• <a href="{ycal_link}">Яндекс Календарь</a>')
+    link_parts: list[str] = []
+    if maps_link:
+        link_parts.append(f'<a href="{maps_link}">🗺 Карта</a>')
+    if y_maps_link:
+        link_parts.append(f'<a href="{y_maps_link}">Яндекс</a>')
+    if dgis_link:
+        link_parts.append(f'<a href="{dgis_link}">2ГИС</a>')
+    if gcal_link:
+        link_parts.append(f'<a href="{gcal_link}">📅 GCal</a>')
+    if ycal_link:
+        link_parts.append(f'<a href="{ycal_link}">📅 Я.Календарь</a>')
+    if link_parts:
+        lines.extend(card_section("🔗 Полезные ссылки", [" · ".join(link_parts)]))
 
     if carpool_enabled and str(event.get("id", "")).isdigit():
         from bot.database import get_drivers_with_passengers, get_ride_seekers
@@ -303,7 +321,8 @@ async def format_event_message(
                     )
                     lines.append(f"   Пассажиры: {passengers}")
 
-    lines.extend(card_cta(brand_voice("event_card_cta")))
+    if show_cta:
+        lines.extend(card_cta(brand_voice("event_card_cta")))
     return "\n".join(lines)
 
 
@@ -353,6 +372,7 @@ def format_digest_text(
             f"🔗 Ссылка: {link_text}\n"
         )
 
+    lines.extend(["", f"<i>{brand_voice('afisha_iphone_hint_body')}</i>"])
     return "\n".join(lines)
 
 

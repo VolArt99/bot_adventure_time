@@ -4,7 +4,7 @@ import logging
 from html import escape
 
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, Message
 
 from bot.config import GROUP_ID
 from bot.database import (
@@ -21,6 +21,8 @@ from bot.database import (
 from bot.utils.helpers import get_user_mentions
 from bot.utils.design import BRAND, brand_voice, card_cta, card_header, card_section, money_collection_line
 from bot.utils.notifications import send_private_dm
+from bot.keyboards import split_bill_actions, split_bill_organizer_keyboard
+
 from bot.utils.ui import answer_private_final
 
 logger = logging.getLogger(__name__)
@@ -28,25 +30,6 @@ logger = logging.getLogger(__name__)
 
 def parse_args(message: Message) -> list[str]:
     return (message.text or "").split()[1:]
-
-
-def split_bill_actions(split_id: int, *, show_remind: bool = True) -> InlineKeyboardMarkup:
-    rows = [
-        [
-            InlineKeyboardButton(text="✅ Присоединиться", callback_data=f"sb_join_{split_id}"),
-            InlineKeyboardButton(text="🚪 Выйти", callback_data=f"sb_leave_{split_id}"),
-        ],
-        [
-            InlineKeyboardButton(text="💸 Оплатил(а)", callback_data=f"sb_paid_{split_id}"),
-            InlineKeyboardButton(text="🔄 Обновить", callback_data=f"sb_status_{split_id}"),
-        ],
-    ]
-    if show_remind:
-        rows.append(
-            [InlineKeyboardButton(text="🔔 Напомнить должникам", callback_data=f"sb_remind_{split_id}")]
-        )
-    rows.append([InlineKeyboardButton(text="🔒 Закрыть чек", callback_data=f"sb_close_{split_id}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def build_payment_progress_bar(paid_count: int, total_count: int, width: int = 6) -> str:
@@ -175,6 +158,7 @@ async def finalize_split_bill(message: Message, state: FSMContext) -> None:
         f"Чек «{data.get('title') or f'#{split_id}'}»\n"
         f"ID: {split_id}\n"
         f"Ссылка: https://t.me/c/{str(GROUP_ID).replace('-100', '')}/{sent.message_id}",
+        reply_markup=split_bill_organizer_keyboard(split_id),
     )
     await state.clear()
 

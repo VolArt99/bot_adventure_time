@@ -22,6 +22,11 @@ from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 
 router = Router(name=__name__)
 
+SUBSCRIPTIONS_INTRO = (
+    "📬 <b>Подписки на категории</b>\n\n"
+    "Выберите интересы — изменения <b>сохраняются автоматически</b>."
+)
+
 
 def _subscriptions_keyboard(selected: list[str]):
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -40,7 +45,7 @@ def _subscriptions_keyboard(selected: list[str]):
         )
     rows.append([InlineKeyboardButton(text="✅ Подписаться на всё", callback_data="sub_all")])
     rows.append([InlineKeyboardButton(text="🚫 Отписаться от всего", callback_data="sub_none")])
-    rows.append([InlineKeyboardButton(text="💾 Сохранить", callback_data="sub_save")])
+    rows.append([InlineKeyboardButton(text="✅ Готово", callback_data="sub_done")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -56,9 +61,7 @@ def _subscriptions_group_keyboard(group_key: str, selected: list[str]):
     rows.append([InlineKeyboardButton(text="➕ Подписаться на всю группу", callback_data=f"sub_grp_all_{group_key}")])
     rows.append([InlineKeyboardButton(text="➖ Отписаться от всей группы", callback_data=f"sub_grp_none_{group_key}")])
     rows.append([InlineKeyboardButton(text="↩️ К группам", callback_data="sub_back")])
-    rows.append([InlineKeyboardButton(text="✅ Подписаться на всё", callback_data="sub_all")])
-    rows.append([InlineKeyboardButton(text="🚫 Отписаться от всего", callback_data="sub_none")])    
-    rows.append([InlineKeyboardButton(text="💾 Сохранить", callback_data="sub_save")])
+    rows.append([InlineKeyboardButton(text="✅ Готово", callback_data="sub_done")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -67,7 +70,8 @@ async def cmd_subscriptions(message: Message):
     await get_or_create_user(message.from_user.id, message.from_user.username)
     selected = await get_user_category_subscriptions(message.from_user.id)
     await message.answer(
-        "📬 Выберите группы категорий для персонального дайджеста:",
+        SUBSCRIPTIONS_INTRO,
+        parse_mode="HTML",
         reply_markup=_subscriptions_keyboard(selected),
     )
 
@@ -96,7 +100,7 @@ async def toggle_subscription(callback: CallbackQuery):
         selected.append(category)
 
     await set_user_category_subscriptions(callback.from_user.id, selected)
-    await finalize_callback(callback, "Подписки обновлены")
+    await finalize_callback(callback, "✅ Сохранено")
     current = callback.message.reply_markup.inline_keyboard[0][0].callback_data
     if current and current.startswith("sub_toggle_"):
         category = current.removeprefix("sub_toggle_")
@@ -105,7 +109,7 @@ async def toggle_subscription(callback: CallbackQuery):
             "other",
         )
         await callback.message.edit_reply_markup(reply_markup=_subscriptions_group_keyboard(group_key, sorted(set(selected))))
-        return    
+        return
     await callback.message.edit_reply_markup(reply_markup=_subscriptions_keyboard(sorted(set(selected))))
 
 
@@ -119,7 +123,7 @@ async def subscribe_group_subcategories(callback: CallbackQuery):
     selected = set(await get_user_category_subscriptions(callback.from_user.id))
     selected.update(group["subcategories"])
     await set_user_category_subscriptions(callback.from_user.id, sorted(selected))
-    await finalize_callback(callback, "Подгруппа подписана")
+    await finalize_callback(callback, "✅ Сохранено")
     await callback.message.edit_reply_markup(reply_markup=_subscriptions_group_keyboard(group_key, sorted(selected)))
 
 
@@ -133,10 +137,10 @@ async def unsubscribe_group_subcategories(callback: CallbackQuery):
     selected = set(await get_user_category_subscriptions(callback.from_user.id))
     selected.difference_update(group["subcategories"])
     await set_user_category_subscriptions(callback.from_user.id, sorted(selected))
-    await finalize_callback(callback, "Подгруппа отписана")
+    await finalize_callback(callback, "✅ Сохранено")
     await callback.message.edit_reply_markup(reply_markup=_subscriptions_group_keyboard(group_key, sorted(selected)))
 
-    
+
 @router.callback_query(F.data == "sub_back")
 async def back_subscriptions(callback: CallbackQuery):
     selected = await get_user_category_subscriptions(callback.from_user.id)
@@ -147,25 +151,31 @@ async def back_subscriptions(callback: CallbackQuery):
 @router.callback_query(F.data == "sub_all")
 async def subscribe_all(callback: CallbackQuery):
     await set_user_category_subscriptions(callback.from_user.id, EVENT_CATEGORIES)
-    await finalize_callback(callback, "✅ Включены все категории")
+    await finalize_callback(callback, "✅ Все категории включены")
     await callback.message.edit_reply_markup(reply_markup=_subscriptions_keyboard(EVENT_CATEGORIES))
 
 
 @router.callback_query(F.data == "sub_none")
 async def subscribe_none(callback: CallbackQuery):
     await set_user_category_subscriptions(callback.from_user.id, [])
-    await finalize_callback(callback, "🚫 Все подписки отключены")
+    await finalize_callback(callback, "🚫 Подписки отключены")
     await callback.message.edit_reply_markup(reply_markup=_subscriptions_keyboard([]))
-    
 
-@router.callback_query(F.data == "sub_save")
-async def save_subscriptions(callback: CallbackQuery):
+
+@router.callback_query(F.data == "sub_done")
+async def subscriptions_done(callback: CallbackQuery):
     selected = await get_user_category_subscriptions(callback.from_user.id)
     if selected:
-        await callback.message.answer(f"✅ Подписки сохранены: {', '.join(selected)}")
+        await callback.message.answer(f"✅ Подписки активны: {len(selected)} категорий.")
     else:
-        await callback.message.answer("✅ Подписки очищены. Персональный дайджест отключён.")
-    await finalize_callback(callback, "Сохранено", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+        await callback.message.answer("ℹ️ Подписки отключены — персональный дайджест пуст.")
+    await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+
+
+@router.callback_query(F.data == "sub_save")
+async def save_subscriptions_legacy(callback: CallbackQuery):
+    """Обратная совместимость со старыми клавиатурами."""
+    await subscriptions_done(callback)
 
 
 @router.message(Command("my_digest"))

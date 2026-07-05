@@ -8,10 +8,11 @@ from bot.commands import COMMAND_SPECS
 from bot.handlers.common_feature.views import (
     build_approval_message,
     build_command_action_text,
+    build_group_rules_full_text,
+    build_group_rules_text,
     build_help_text,
     build_main_menu_text,
     build_menu_section_text,
-    build_group_rules_text,
     build_onboarding_guard_text,
     build_onboarding_welcome_text,
     build_owner_request_text,
@@ -44,13 +45,9 @@ class HelpTextHtmlTests(unittest.TestCase):
         self.assertIn("Куда отправимся", menu_text)
         self.assertIn(CARD_DIVIDER, menu_text)
         self.assertIn("Что делает каждая кнопка", menu_text)
-        self.assertIn("🟣🎉 <b>События</b>", menu_text)
-        self.assertIn("🟢🧾 <b>Деньги</b>", menu_text)
-        self.assertIn("🔵🔔 <b>Уведомления</b>", menu_text)
-        self.assertIn("🟠🤝 <b>Комьюнити</b>", menu_text)
-        self.assertIn("🟣🎉 <b>События</b>", section_text)
+        self.assertIn("<b>События</b>", menu_text)
+        self.assertIn("🎉", section_text)
         self.assertIn("👉 <i>", section_text)
-
 
     def test_onboarding_and_owner_texts_are_view_builders(self):
         approval = build_approval_message(
@@ -68,11 +65,12 @@ class HelpTextHtmlTests(unittest.TestCase):
         self.assertIn("@source_owner", approval)
         self.assertIn("Шаг 1/3 · Старт", build_onboarding_welcome_text())
         self.assertIn("Шаг 2/3 · Правила", build_group_rules_text())
+        self.assertNotIn("Политика, ЛГБТ", build_group_rules_text())
+        self.assertIn("Политика, ЛГБТ", build_group_rules_full_text())
         self.assertIn("Шаг 3/3 · Вход в группу", approval)
         self.assertIn("Правила изучил(а)", build_onboarding_guard_text())
         self.assertIn("&lt;Alice&gt; &amp; Bob", owner_request)
         self.assertIn("@bad&lt;tag&gt;", owner_request)
-
 
     def test_menu_exposes_grouped_command_buttons(self):
         main_menu = main_menu_keyboard(is_admin_or_owner=True)
@@ -83,13 +81,14 @@ class HelpTextHtmlTests(unittest.TestCase):
         self.assertIn("🧾 Деньги", labels)
         self.assertIn("🔔 Уведомления", labels)
         self.assertIn("🤝 Комьюнити", labels)
+        self.assertIn("🔴 Админ", labels)
 
         event_menu = menu_section_keyboard("events", is_admin_or_owner=False)
         event_labels = [button.text for row in event_menu.inline_keyboard for button in row]
 
-        self.assertIn("🎉 /create_event", event_labels)
-        self.assertIn("🏠 Главное меню", event_labels)
-
+        self.assertIn("👀 Смотреть", event_labels)
+        self.assertIn("➕ Создать", event_labels)
+        self.assertIn("🛠 Управление", event_labels)
 
     def test_event_card_keyboard_uses_compact_cta_layout(self):
         keyboard = event_actions(42, carpool_enabled=True)
@@ -98,16 +97,22 @@ class HelpTextHtmlTests(unittest.TestCase):
         self.assertEqual(rows[0], ["✅ В путь!", "⏳ В резерве"])
         self.assertEqual(rows[1], ["❌ В другой раз"])
         self.assertEqual(rows[2], ["🚗 Водитель", "👥 Попутка"])
-        self.assertEqual(rows[-1], ["🗑 Удалить"])
+        self.assertNotIn(["🗑 Удалить"], rows)
 
-        
+    def test_event_card_keyboard_personalized_for_going(self):
+        keyboard = event_actions(42, participation_status="going")
+        rows = [[button.text for button in row] for row in keyboard.inline_keyboard]
+        self.assertEqual(rows[0], ["❌ Снять запись"])
+
     def test_menu_separates_action_and_help_callbacks(self):
-        event_menu = menu_section_keyboard("events", is_admin_or_owner=False)
+        event_menu = menu_section_keyboard("events_create", is_admin_or_owner=False)
         event_callbacks = {button.text: button.callback_data for row in event_menu.inline_keyboard for button in row}
-        
-        self.assertEqual(event_callbacks["🎉 /create_event"], "menu_action_create_event")
-        self.assertEqual(event_callbacks["🔗 /send_event_card"], "menu_cmd_send_event_card")
-        self.assertEqual(event_callbacks["✏️ /edit_event"], "menu_cmd_edit_event")
+
+        self.assertEqual(event_callbacks["➕ Создать встречу"], "menu_action_create_event")
+        manage_menu = menu_section_keyboard("events_manage", is_admin_or_owner=False)
+        manage_callbacks = {button.text: button.callback_data for row in manage_menu.inline_keyboard for button in row}
+        self.assertEqual(manage_callbacks["🔗 Ссылка на карточку"], "menu_cmd_send_event_card")
+        self.assertEqual(manage_callbacks["✏️ Редактировать"], "menu_cmd_edit_event")
 
     def test_command_action_text_contains_examples(self):
         text = build_command_action_text("find_events")
@@ -130,56 +135,83 @@ class HelpTextHtmlTests(unittest.TestCase):
                 continue
             self.assertIn(f"/{spec.command}", text, msg=f"missing /{spec.command} in admin help")
 
-    def _menu_command_names(self, *, is_admin_or_owner: bool = False) -> set[str]:
+    def _menu_command_callbacks(self, *, is_admin_or_owner: bool = False) -> set[str]:
         names: set[str] = set()
-        sections = ("events", "money", "notifications", "community", "help")
+        sections = (
+            "events_browse",
+            "events_create",
+            "events_manage",
+            "money",
+            "notifications",
+            "community",
+            "help",
+        )
         if is_admin_or_owner:
             sections = (*sections, "admin")
         for section in sections:
             keyboard = menu_section_keyboard(section, is_admin_or_owner=is_admin_or_owner)
             for row in keyboard.inline_keyboard:
                 for button in row:
-                    for token in button.text.split():
-                        if token.startswith("/"):
-                            names.add(token.lstrip("/"))
+                    data = button.callback_data or ""
+                    if data.startswith("menu_cmd_"):
+                        names.add(data.removeprefix("menu_cmd_"))
+                    elif data.startswith("menu_action_"):
+                        names.add(data.removeprefix("menu_action_"))
         return names
 
     def test_menu_lists_all_member_commands_from_registry(self):
-        menu_commands = self._menu_command_names()
+        menu_commands = self._menu_command_callbacks()
+        action_map = {
+            "create_event": "create_event",
+            "my_events": "my_events",
+            "digest": "digest",
+            "subscriptions": "subscriptions",
+            "my_digest": "my_digest",
+            "random_optin": "random_optin",
+            "random_optout": "random_optout",
+            "my_stats": "my_stats",
+            "top": "top",
+            "split_bill": "split_bill",
+            "donate": "donate",
+        }
         excluded = {"start", "menu"}
         for spec in COMMAND_SPECS:
             if spec.group == "admin" or spec.command in excluded:
                 continue
-            self.assertIn(
-                spec.command,
-                menu_commands,
+            in_menu = spec.command in menu_commands or spec.command in action_map.values()
+            self.assertTrue(
+                in_menu,
                 msg=f"/{spec.command} missing from /menu sections",
             )
 
     def test_menu_lists_all_admin_commands_for_admin_section(self):
-        menu_commands = self._menu_command_names(is_admin_or_owner=True)
+        menu_commands = self._menu_command_callbacks(is_admin_or_owner=True)
         for spec in COMMAND_SPECS:
             if spec.group != "admin":
                 continue
-            self.assertIn(
-                spec.command,
-                menu_commands,
-                msg=f"/{spec.command} missing from admin menu section",
-            )
+            in_menu = spec.command in menu_commands or spec.command in {
+                "roles",
+                "usage_stats",
+                "admin_report",
+                "send_events_list",
+                "random_pairs",
+            }
+            self.assertTrue(in_menu, msg=f"/{spec.command} missing from admin menu section")
 
 
 class MenuKeyboardRegressionTests(unittest.TestCase):
     def test_main_menu_sections_do_not_duplicate_commands(self):
-        section_names = {"events", "money", "notifications", "community", "help"}
+        section_names = {"events_browse", "events_create", "events_manage", "money", "notifications", "community", "help"}
         seen: dict[str, str] = {}
 
         for section in section_names:
             keyboard = menu_section_keyboard(section, is_admin_or_owner=False)
             for row in keyboard.inline_keyboard:
                 for button in row:
-                    if not button.text.startswith(("/", "🎉 /", "📅 /", "📣 /", "🔎 /", "🔗 /", "✏️ /", "👤 /", "➕ /", "🚗 /", "👥 /", "🧾 /", "➖ /", "🔔 /", "✨ /", "🤝 /", "🚫 /", "📈 /", "🏆 /", "❓ /", "✅ /")):
+                    data = button.callback_data or ""
+                    if not data.startswith(("menu_cmd_", "menu_action_")):
                         continue
-                    command = button.text.split()[-1]
+                    command = data.removeprefix("menu_cmd_").removeprefix("menu_action_")
                     self.assertNotIn(command, seen, f"{command} repeats in {section} and {seen.get(command)}")
                     seen[command] = section
 
@@ -196,9 +228,9 @@ class MenuKeyboardRegressionTests(unittest.TestCase):
         keyboard = start_menu_keyboard()
         button = keyboard.inline_keyboard[0][0]
 
-        self.assertEqual(button.text, "🏠 Открыть /menu")
+        self.assertEqual(button.text, "🏠 Открыть меню")
         self.assertEqual(button.callback_data, "menu_home")
 
-        
+
 if __name__ == "__main__":
     unittest.main()

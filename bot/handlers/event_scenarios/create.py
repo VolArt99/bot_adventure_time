@@ -1,5 +1,5 @@
 from aiogram import F, Router
-from datetime import datetime
+from datetime import datetime, timedelta
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -19,6 +19,7 @@ from bot.keyboards import (
     choose_topic_keyboard,
     event_preview_keyboard,
     template_field_keyboard,
+    event_datetime_keyboard,
 )
 from .shared import CreateEvent, event_step_prompt, parse_datetime, build_event_payload
 from bot.utils.design import wizard_prompt, brand_voice
@@ -31,6 +32,65 @@ from bot.utils.helpers import get_user_mention
 
 router = Router(name=__name__)
 TZ = pytz.timezone(TIMEZONE)
+
+
+def _datetime_example_text() -> str:
+    example = datetime.now(TZ).strftime("%d.%m.%Y %H:%M")
+    return (
+        f"{wizard_prompt('datetime')}\n"
+        f"Пример: <b>{example}</b>"
+    )
+
+
+async def _advance_after_datetime(message: Message, state: FSMContext, dt: datetime) -> None:
+    await state.update_data(date_time=dt.isoformat())
+    data = await state.get_data()
+    if data.get("from_copy"):
+        topics = await get_topics_list_from_db()
+        if topics:
+            await state.set_state(CreateEvent.thread)
+            await answer_private_intermediate(
+                message,
+                state,
+                event_step_prompt(CreateEvent.thread.state, "🗂 Выберите, где опубликовать копию мероприятия:"),
+                reply_markup=choose_topic_keyboard(topics, back_callback="event_back"),
+            )
+            return
+        await state.update_data(thread_id=None)
+        from .shared import show_event_preview
+
+        await show_event_preview(message, state, message.from_user.id, message.bot)
+        return
+
+    await state.update_data(period_end=None)
+    await state.set_state(CreateEvent.period_mode)
+    await answer_private_intermediate(
+        message,
+        state,
+        event_step_prompt(
+            CreateEvent.period_mode.state,
+            f"{wizard_prompt('period_mode')}\n"
+            "Например: книжный клуб читает книгу с даты старта до даты дедлайна.",
+        ),
+        reply_markup=event_period_mode_keyboard(back_callback="event_back"),
+    )
+
+
+def _quick_datetime(choice: str) -> datetime:
+    now = datetime.now(TZ)
+    if choice == "event_dt_tonight":
+        candidate = now.replace(hour=19, minute=0, second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        return candidate
+    if choice == "event_dt_tomorrow":
+        tomorrow = now + timedelta(days=1)
+        return tomorrow.replace(hour=19, minute=0, second=0, microsecond=0)
+    days_until_saturday = (5 - now.weekday()) % 7
+    if days_until_saturday == 0 and now.hour >= 12:
+        days_until_saturday = 7
+    saturday = now + timedelta(days=days_until_saturday)
+    return saturday.replace(hour=12, minute=0, second=0, microsecond=0)
 
 async def start_create_event_wizard(message: Message, state: FSMContext) -> None:
     await state.set_state(CreateEvent.title)
@@ -75,17 +135,26 @@ async def start_copy_event_wizard(message: Message, state: FSMContext, source_ev
         from_copy=True,
         copy_source_id=source_event.get("id"),
     )
+    await _prompt_datetime_step(
+        message,
+        state,
+        prefix="📋 Шаблон загружен из прошлого мероприятия.",
+    )
+
+
+async def _prompt_datetime_step(message: Message, state: FSMContext, *, prefix: str = "", hint: str = "") -> None:
     await state.set_state(CreateEvent.datetime)
-    example = datetime.now(TZ).strftime("%d.%m.%Y %H:%M")
+    body = _datetime_example_text()
+    if hint:
+        body = f"{body}\n{hint}"
+    if prefix:
+        body = f"{prefix}\n{body}"
     await answer_private_intermediate(
         message,
         state,
-        event_step_prompt(
-            CreateEvent.datetime.state,
-            "📋 Шаблон загружен из прошлого мероприятия.\n"
-            f"{wizard_prompt('datetime')}\nПример: {example}",
-        ),
-        reply_markup=cancel_keyboard(back_callback="event_back"),
+        event_step_prompt(CreateEvent.datetime.state, body),
+        reply_markup=event_datetime_keyboard(back_callback="event_back"),
+        parse_mode="HTML",
     )
 
 
@@ -118,11 +187,9 @@ async def _show_event_step_prompt(message: Message, state: FSMContext, state_nam
         await answer_private_intermediate(
             message,
             state,
-            event_step_prompt(
-                CreateEvent.datetime.state,
-                f"{wizard_prompt('datetime')}\nПример: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-            ),
-            reply_markup=cancel_keyboard(back_callback="event_back"),
+            event_step_prompt(CreateEvent.datetime.state, _datetime_example_text()),
+            reply_markup=event_datetime_keyboard(back_callback="event_back"),
+            parse_mode="HTML",
         )
     elif state_name == CreateEvent.period_mode.state:
         await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.period_mode.state, wizard_prompt("period_mode")), reply_markup=event_period_mode_keyboard(back_callback="event_back"))
@@ -226,20 +293,11 @@ async def _prompt_template_description(message: Message, state: FSMContext) -> N
 async def _go_to_datetime_step(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     hint = (
-        "\n📌 Для этого формата на следующем шаге удобно выбрать период действия."
+        "📌 Для этого формата на следующем шаге удобно выбрать период действия."
         if data.get("template_period_hint")
         else ""
     )
-    await state.set_state(CreateEvent.datetime)
-    await answer_private_intermediate(
-        message,
-        state,
-        event_step_prompt(
-            CreateEvent.datetime.state,
-            f"{wizard_prompt('datetime')}{hint}\nПример: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-        ),
-        reply_markup=cancel_keyboard(back_callback="event_back"),
-    )
+    await _prompt_datetime_step(message, state, hint=hint)
 
 
 async def _show_preview_step(message: Message, state: FSMContext) -> None:
@@ -480,16 +538,7 @@ async def process_title(message: Message, state: FSMContext):
 @router.callback_query(CreateEvent.description, F.data == "skip_description")
 async def skip_description(callback: CallbackQuery, state: FSMContext):
     await state.update_data(description="")
-    await state.set_state(CreateEvent.datetime)
-    await answer_private_intermediate(
-        callback.message,
-        state,
-        event_step_prompt(
-            CreateEvent.datetime.state,
-            f"{wizard_prompt('datetime')}\nПример: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-        ),
-        reply_markup=cancel_keyboard(back_callback="event_back"),
-    )
+    await _prompt_datetime_step(callback.message, state)
     await finalize_callback(callback, "Описание пропущено", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
@@ -503,16 +552,20 @@ async def process_description(message: Message, state: FSMContext):
     if data.get("from_template"):
         await _go_to_datetime_step(message, state)
         return
-    await state.set_state(CreateEvent.datetime)
-    await answer_private_intermediate(
-        message,
-        state,
-        event_step_prompt(
-            CreateEvent.datetime.state,
-            f"{wizard_prompt('datetime')}\nПример: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-        ),
-        reply_markup=cancel_keyboard(back_callback="event_back"),
-    )
+    await _prompt_datetime_step(message, state)
+
+
+@router.callback_query(
+    CreateEvent.datetime,
+    F.data.in_({"event_dt_tonight", "event_dt_tomorrow", "event_dt_saturday"}),
+)
+async def quick_datetime(callback: CallbackQuery, state: FSMContext):
+    dt = _quick_datetime(callback.data)
+    if dt <= datetime.now(TZ):
+        await finalize_callback(callback, "Выберите другую дату", show_alert=True)
+        return
+    await _advance_after_datetime(callback.message, state, dt)
+    await finalize_callback(callback, f"📅 {dt.strftime('%d.%m.%Y %H:%M')}", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
 @router.message(CreateEvent.datetime, ~F.text.startswith("/"))
@@ -524,41 +577,12 @@ async def process_datetime(message: Message, state: FSMContext):
             state,
             "❌ Неверный формат или дата в прошлом.\n"
             "Используйте: ДД.ММ.ГГГГ ЧЧ:ММ\n"
-            "Примеры: 25.05.2026 19:30, 01.06.2026 10:00"
+            "Примеры: 25.05.2026 19:30, 01.06.2026 10:00",
+            reply_markup=event_datetime_keyboard(back_callback="event_back"),
         )
         return
 
-    await state.update_data(date_time=dt.isoformat())
-    data = await state.get_data()
-    if data.get("from_copy"):
-        topics = await get_topics_list_from_db()
-        if topics:
-            await state.set_state(CreateEvent.thread)
-            await answer_private_intermediate(
-                message,
-                state,
-                event_step_prompt(CreateEvent.thread.state, "🗂 Выберите, где опубликовать копию мероприятия:"),
-                reply_markup=choose_topic_keyboard(topics, back_callback="event_back"),
-            )
-            return
-        await state.update_data(thread_id=None)
-        from .shared import show_event_preview
-
-        await show_event_preview(message, state, message.from_user.id, message.bot)
-        return
-
-    await state.update_data(period_end=None)
-    await state.set_state(CreateEvent.period_mode)
-    await answer_private_intermediate(
-        message,
-        state,
-        event_step_prompt(
-            CreateEvent.period_mode.state,
-            f"{wizard_prompt('period_mode')}\n"
-            "Например: книжный клуб читает книгу с даты старта до даты дедлайна.",
-        ),
-        reply_markup=event_period_mode_keyboard(back_callback="event_back"),
-    )
+    await _advance_after_datetime(message, state, dt)
 
 
 @router.callback_query(CreateEvent.period_mode, F.data.startswith("event_period_"))
