@@ -35,6 +35,10 @@ LOG_FILE="${BACKUP_LOG_FILE:-$BACKUP_DIR/backup.log}"
   fi
   find "$BACKUP_DIR" -name "*.sql.gz" -mtime +"$RETENTION_DAYS" -delete
   find "$BACKUP_DIR" -name "*.sql.gz.sha256" -mtime +"$RETENTION_DAYS" -delete
+  chmod 600 "$OUTPUT"
+  if [[ -f "$CHECKSUM" ]]; then
+    chmod 600 "$CHECKSUM"
+  fi
   echo "[$TIMESTAMP] backup saved to $OUTPUT"
 } >>"$LOG_FILE" 2>&1
 

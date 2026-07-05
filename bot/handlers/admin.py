@@ -40,7 +40,7 @@ async def cmd_admin_report(message: Message):
     top_categories = metrics["top_categories"]
     if top_categories:
         categories_text = "\n".join(
-            f"• {row['category']} — {row['cnt']}" for row in top_categories
+            f"• {escape(str(row['category']))} — {row['cnt']}" for row in top_categories
         )
     else:
         categories_text = "• пока нет данных"

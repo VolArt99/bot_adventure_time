@@ -31,6 +31,15 @@ def build_approved_member_start_text() -> str:
     return brand_voice("approved_member_start")
 
 
+def build_group_member_bot_access_denied_text(*, owner_contact_html: str) -> str:
+    """Текст для участника группы без одобрения бота."""
+    return (
+        "👋 Вы уже в группе Telegram, но бот ещё не подтвердил ваш доступ.\n\n"
+        "Попросите капитана одобрить вас через бота или дождитесь ручной синхронизации.\n"
+        f"Связаться: {owner_contact_html}"
+    )
+
+
 def build_group_rules_text() -> str:
     """Текст правил для onboarding-сценария."""
     return (

@@ -64,6 +64,7 @@ Telegram-бот для приватного сообщества: меропри
 │   ├── backup-cron.example
 │   ├── bot-adventure-time.service
 │   ├── postgresql.vds.conf
+│   ├── pg_hba.docker.conf
 │   ├── server_hardening.example.sh
 │   └── VDS_SETUP.md
 ├── backups/                         # pg_dump (не в git, кроме .gitkeep)
@@ -72,6 +73,7 @@ Telegram-бот для приватного сообщества: меропри
 ├── README.md
 ├── tests/
 │   ├── test_access_and_flows.py
+│   ├── test_security_helpers.py
 │   ├── test_help_text_html.py
 │   ├── test_texts.py
 │   ├── test_fsm_storage_pg.py
@@ -155,6 +157,7 @@ Telegram-бот для приватного сообщества: меропри
 #### Корень проекта
 - `docker-compose.yml` — postgres + bot, лимиты RAM, тюнинг PG.
 - `deploy/postgresql.vds.conf` — настройки PostgreSQL для 2 ГиБ RAM.
+- `deploy/pg_hba.docker.conf` — правила аутентификации PG только для docker-сети.
 - `deploy/VDS_SETUP.md` — пошаговая настройка VDS.
 - `requirements.txt` — зависимости (`bot/requirements.txt`).
 - `.env.example` — безопасный шаблон переменных окружения без секретов.
@@ -197,12 +200,14 @@ Telegram-бот для приватного сообщества: меропри
 - Сезонная шапка меню и дайджеста (зима / весна / лето / осень).
 
 #### `bot/middleware/`
-- `command_access.py` — role-based доступ и дневные лимиты в ЛС (команды **и** callback); счётчик в `user_command_usage_daily`.
+- `command_access.py` — role-based доступ и дневные лимиты **только в ЛС** (команды и callback); счётчик в `user_command_usage_daily`. В группе middleware не применяется — см. раздел «Безопасность».
 - `topic_discoverer.py` — автообновление справочника тем по входящим апдейтам.
 - `latency_metrics.py` — сбор времени обработки update (p50/p95/p99 через периодические логи).
 
-#### `bot/filters/`
+#### `bot/filters/` и `bot/utils/command_policy.py`
 - Фильтры прав (admin/registered/restricted command).
+- `approved_member_callback_only` — декоратор для групповых inline-кнопок (участие, split bill).
+- `can_view_command_hint()` — проверка доступа к подсказкам `menu_cmd_*` в `/menu`.
 
 #### `bot/utils/`
 - `scheduler.py` — напоминания, подтверждение участия за 24ч, digest, restore jobs.
@@ -214,6 +219,7 @@ Telegram-бот для приватного сообщества: меропри
 - `metrics.py` — лёгкий in-memory сбор latency-метрик (p50/p95/p99).
 - `event_links.py` — карты и календарные ссылки (Google/Яндекс).
 - `helpers.py` — mention/username/ссылки на сообщения (`build_event_message_link` с поддержкой `thread_id` для Topics).
+- `callbacks.py` — `finalize_callback`, безопасный парсинг `parse_callback_suffix_int` / `parse_callback_split_int`.
 - `pairing.py` — алгоритм random-пар 1:1.
 
 #### `tests/`
@@ -223,7 +229,20 @@ Telegram-бот для приватного сообщества: меропри
 
 ## Команды бота
 
-> Реестр команд: `bot/commands.py`. Доступность зависит от роли (`OWNER_ID`, `ADMIN_IDS`, approved-member) и лимитов из `config.py`.
+> Реестр команд: `bot/commands.py`. Доступность зависит от роли (`OWNER_ID`, `ADMIN_IDS`, запись в `approved_members`) и лимитов из `config.py`.
+
+### Модель доступа
+
+| Роль | Как получить | Что доступно |
+|------|----------------|--------------|
+| **Owner** | `OWNER_ID` в `.env` | Всё, без дневного лимита |
+| **Admin** | `ADMIN_IDS` | Расширенные команды, с лимитом `ADMIN_DAILY_COMMAND_LIMIT` |
+| **Approved member** | Владелец одобрил заявку (`approve_user_*`) или запись уже есть в `approved_members` | Пользовательские команды из `MEMBER_ALLOWED_COMMANDS` |
+| **Outsider** | Не одобрен ботом | По умолчанию только `/start` и `/donate` |
+
+**Важно:** нахождение в Telegram-группе **не равно** одобрению ботом. Участник, добавленный в группу в обход бота (инвайт админа Telegram, прямая ссылка), не получает команды участника, пока владелец не одобрит его через бота или не появится запись в `approved_members` (например, после `approve_user_*` или `/sync_members` для уже одобренных).
+
+Онбординг: `/start` → правила → заявка владельцу → `approve_user_*` → одноразовая invite-ссылка → участник в группе и в `approved_members`.
 
 ### Базовые
 - `/start` — вход/онбординг; для одобренного участника — приветствие и кнопка перехода в `/menu`.
@@ -290,6 +309,9 @@ Telegram-бот для приватного сообщества: меропри
 
 ### Важные детали поведения
 - `/pending_intro` — единая команда контроля «Рассказа о себе»: показывает pending-участников (с кнопками отметки) и сводный статус по всем актуальным участникам группы.
+- Кнопки `menu_cmd_*` в `/menu` показывают **подсказку** по команде (синтаксис и описание), но не выполняют её; админские подсказки скрыты от обычных участников (`can_view_command_hint`).
+- Групповые inline-кнопки (участие, split bill) проверяют `is_member_approved` через `@approved_member_callback_only`; отказ от участия (`decline_*`) продвигает резерв только если пользователь реально был в списке.
+- Split-bill карточки в группе: все пользовательские поля (название, реквизиты, ФИО) экранируются для `parse_mode=HTML`.
 - В командах, где оператор задаёт `user_id` вручную (`/set_responsible`, `/add_participant_manual`, `/split_bill_add`), применяется проверка «только актуальные участники группы». Для `@username` используется поиск в БД и fallback по approved members через Telegram API.
 - Для random 1:1 в пулы и пары попадают только пользователи из `approved_members` (исключённые участники автоматически не участвуют). `/random_pairs` публикует общую карточку в выбранную группу/подгруппу и не рассылает личные уведомления о парах.
 - `/send_event_card` публикует короткое сообщение со ссылкой на основную карточку мероприятия, а не вторую интерактивную карточку; callback-кнопки продолжают обновлять только основную карточку.
@@ -337,7 +359,8 @@ Telegram-бот для приватного сообщества: меропри
 ### Производительность и безопасность
 - `aiohttp>=3.13.4` — закрыты известные DoS/header parser уязвимости
 - Погодный клиент: TTL-кеш 300 с, rate-limit 2 с на ключ (задано в `bot/utils/weather.py`)
-- PostgreSQL на VDS: тюнинг в `deploy/postgresql.vds.conf`, подключается через `docker-compose.yml`
+- PostgreSQL на VDS: `deploy/postgresql.vds.conf` + `deploy/pg_hba.docker.conf` (только private-сети Docker); **не публикуйте** `5432` на хост (`expose`, не `ports`)
+- Бэкапы БД: `chmod 600` на `.sql.gz` и `.sha256`; каталог `backups/` в `.gitignore`
 
 ---
 
@@ -375,18 +398,38 @@ python -m compileall -q bot tests
 
 ## Безопасность и эксплуатационные практики
 
-- Не храните ключи/токены в репозитории; используйте секреты CI/CD и env-переменные.
-- Для PostgreSQL используйте параметризованные запросы через asyncpg pool.
-- Ограничения команд и ролей централизованы в `middleware/command_access.py` и `config.py`.
-- При изменении команд/доступов синхронизируйте:
-  1) `/help` тексты,  
-  2) README,  
-  3) `промт.txt`.
+### Секреты и инфраструктура
+- Не храните ключи/токены в репозитории; используйте `.env` (в `.gitignore`) и секреты CI/CD.
+- Для PostgreSQL — параметризованные запросы через asyncpg pool (`bot/db_pool.py`).
+- Docker: бот под non-root (`botuser`); PostgreSQL доступен только внутри docker-сети.
+- **Никогда** не добавляйте в `docker-compose.yml` строку `ports: "5432:5432"` для postgres.
+
+### Доступ и авторизация
+- ЛС: роли и дневные лимиты — `middleware/command_access.py` + `config.py` + `bot/commands.py`.
+- Группа: middleware **не** проверяет роли; каждый callback-хендлер обязан сам проверять права (`@approved_member_callback_only`, `_can_manage_event`, `_can_view_event` и т.д.).
+- Одобрение участника — только через владельца (`approve_user_*`); автоматическое добавление в `approved_members` при вступлении в Telegram-группу **отключено**.
+- Админ-команды: `@admin_only`, `@restricted_command`, проверка в `menu_cmd_*` через `can_view_command_hint`.
+
+### Ввод пользователя и HTML
+- Карточки событий (`texts.py`), split bill (`split_bill_feature/services.py`), админ-ответы (`debug_info`, `list_topics`, `admin_report`) — `html.escape()` для пользовательских данных.
+- Контакт владельца — `build_owner_contact_html()` (валидация username/URL, strip control chars).
+- Callback `data` — парсить через `parse_callback_suffix_int` / `parse_callback_split_int`, не `int(callback.data.split(...))` без проверки.
+
+### Резервные копии
+- Дамп содержит PII и реквизиты split bill — храните `backups/` с правами `600`, вне web-root, с ротацией `BACKUP_RETENTION_DAYS`.
+- Восстановление — только осознанно через `restore_db.sh`.
+
+### Синхронизация при изменениях
+При изменении команд/доступов обновляйте:
+1. `/help` и `common_feature/views.py`
+2. `README.md` и `промт.txt`
+3. тесты в `tests/test_access_and_flows.py`, `tests/test_security_helpers.py`
 
 ---
 
 ## Что обновилось в последних изменениях
 
+- **Безопасность (2026-07):** разделение «в группе Telegram» vs «одобрен ботом»; HTML-escape в split bill и админ-ответах; защита `decline_*` от манипуляции резервом; IDOR-fix в `myevent_{id}`; `pg_hba.docker.conf`; `chmod 600` на бэкапы; `can_view_command_hint` для `menu_cmd_*`; безопасный парсинг callback.
 - **Слой БД:** монолитный `database_pg.py` разбит на пакет `bot/db/`; фасады `bot/database.py` и `bot/database_pg.py` сохранены для совместимости.
 - **Лимиты в PostgreSQL:** дневные лимиты команд/callback в ЛС (`user_command_usage_daily`), переживают рестарт.
 - **Участие:** подтверждение «всё ещё иду» за 24 ч; статус «🚗 Ищу попутку»; копия прошлого события из `/my_events`.
@@ -424,9 +467,14 @@ Split-bill: блоки «Сбор средств» и «Чек-лист опла
 
 ## Безопасность
 
-- Минимальная версия `aiohttp` — `3.13.4`: это закрывает известные проблемы с multipart DoS, zip bomb DoS и обработкой небезопасных response headers в старых версиях.
-- Контакт владельца рендерится через единый helper, который экранирует HTML и удаляет управляющие символы из env-значений.
-- Для production используйте секреты/переменные окружения для токенов и `POSTGRES_PASSWORD`; не коммитьте реальные значения в `.env`.
+- Минимальная версия `aiohttp` — `3.13.4`: закрывает известные проблемы multipart DoS, zip bomb и небезопасных response headers.
+- Контакт владельца — `build_owner_contact_html()` (escape HTML, strip control chars, валидация `@username` и HTTPS).
+- Production: секреты только в env; `POSTGRES_PASSWORD` без `$` (иначе ломается docker-compose).
+- PostgreSQL: `pg_hba.docker.conf` ограничивает клиентов private-сетями; порт 5432 не публикуется на хост.
+- Бэкапы: права `600`, каталог не в git; дамп содержит чувствительные данные.
+- Участники бота одобряются владельцем; членство в Telegram-группе само по себе доступ к командам не даёт.
+
+Подробнее — раздел **«Безопасность и эксплуатационные практики»** выше.
 
 ---
 
@@ -444,7 +492,9 @@ docker compose up -d --build
 docker compose logs -f bot
 ```
 
-PostgreSQL слушает только внутреннюю docker-сеть. Бот не открывает входящие HTTP-порты.
+PostgreSQL слушает интерфейсы внутри docker-сети (`listen_addresses='*'` в контейнере — нормально). Снаружи порт **не** проброшен. Дополнительно: `deploy/pg_hba.docker.conf` разрешает подключения только с private-подсетей (10/8, 172.16/12, 192.168/16, localhost).
+
+**Не добавляйте** `ports: "5432:5432"` у сервиса `postgres` — это откроет БД на хост.
 
 **Healthcheck:** у `postgres` — `pg_isready`; у `bot` — `python -m bot.healthcheck` (проверка свежести heartbeat-файла). Статус: `docker compose ps`.
 
@@ -458,7 +508,9 @@ PostgreSQL слушает только внутреннюю docker-сеть. Б�
 ./deploy/backup_db.sh
 ```
 
-Скрипт сохраняет `pg_dump --clean --if-exists` в `./backups/`, пишет sha256 и лог; удаляет файлы старше `BACKUP_RETENTION_DAYS` (по умолчанию 14). Пример cron: `deploy/backup-cron.example`.
+Скрипт сохраняет `pg_dump --clean --if-exists` в `./backups/`, пишет sha256 и лог; выставляет **`chmod 600`** на архив и checksum; удаляет файлы старше `BACKUP_RETENTION_DAYS` (по умолчанию 14). Пример cron: `deploy/backup-cron.example`.
+
+> Дамп содержит персональные данные и реквизиты split bill. Храните `backups/` только на сервере с ограниченным доступом.
 
 Проверка целостности и восстановление:
 
@@ -502,6 +554,8 @@ PostgreSQL слушает только внутреннюю docker-сеть. Б�
   - `ATTENDANCE_CONFIRM_HOURS` и что до события осталось меньше этого окна.
 - Контейнер `bot` в статусе `unhealthy`:
   - `docker compose logs bot`; проверить heartbeat (`BOT_HEARTBEAT_PATH`) и что процесс не завис.
+- Участник в группе, но бот отвечает «доступ не подтверждён»:
+  - он не в `approved_members`; владелец должен одобрить заявку (`approve_user_*`) или участник проходит онбординг через `/start`.
 - На iPhone ссылка «открыть сообщение» в афише ведёт в группу, а не на карточку:
   - убедиться, что у события сохранены `message_id` и `thread_id` (тема форума);
   - ссылка должна быть вида `t.me/c/<chat>/<thread>/<message>`;

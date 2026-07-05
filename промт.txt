@@ -25,13 +25,14 @@ Definition of Done:
 Задачи: мероприятия, участие, напоминания, дайджесты, random 1:1, онбординг, split bill, пожертвования на поддержку бота.
 
 ### Пользовательские потоки
-1. `/start` → онбординг → одобрение владельцем → вход в группу.
-2. `/create_event` в ЛС → превью → публикация карточки в тему; push подписчикам категории; `/edit_event` — правка полей.
-3. Участники: `✅ В путь!` / `⏳ В резерве` / `❌ В другой раз`; `🚗 Ищу попутку`; подтверждение участия за 24 ч до события.
-4. Напоминания (APScheduler) + weekly digest + restore jobs после рестарта.
-5. `/my_events` → «📋 Копия #ID» — шаблон из прошлого мероприятия.
-6. `/donate` — ссылки на сборы (доступно и не-участникам).
-7. Админы: отчёты, темы, random-пары, sync members, контроль «Рассказа о себе».
+1. `/start` → онбординг → одобрение владельцем (`approve_user_*`) → invite-ссылка → вход в группу → запись в `approved_members`.
+2. Участник **в Telegram-группе без одобрения бота** не получает команды участника (авто-добавление в `approved_members` отключено).
+3. `/create_event` в ЛС → превью → публикация карточки в тему; push подписчикам категории; `/edit_event` — правка полей.
+4. Участники: `✅ В путь!` / `⏳ В резерве` / `❌ В другой раз`; `🚗 Ищу попутку`; подтверждение участия за 24 ч до события.
+5. Напоминания (APScheduler) + weekly digest + restore jobs после рестарта.
+6. `/my_events` → «📋 Копия #ID» — шаблон из прошлого мероприятия.
+7. `/donate` — ссылки на сборы (доступно и не-участникам).
+8. Админы: отчёты, темы, random-пары, sync members, контроль «Рассказа о себе».
 
 ---
 
@@ -52,7 +53,7 @@ Definition of Done:
 
 ### Корень
 - `docker-compose.yml`, `Dockerfile` — VDS-деплой (лимиты RAM, healthcheck postgres + bot)
-- `deploy/` — `deploy.sh`, `backup_db.sh`, `restore_db.sh`, `verify_backup.sh`, `backup-cron.example`, `postgresql.vds.conf`, `VDS_SETUP.md`, systemd unit
+- `deploy/` — `deploy.sh`, `backup_db.sh`, `restore_db.sh`, `verify_backup.sh`, `backup-cron.example`, `postgresql.vds.conf`, `pg_hba.docker.conf`, `VDS_SETUP.md`, systemd unit
 - `backups/` — pg_dump (в git только `.gitkeep`)
 - `.env.example` — шаблон env
 - `README.md`, `промт.txt` — документация
@@ -84,8 +85,11 @@ Definition of Done:
 - `split_bill_feature/` — split bill FSM + карточка + remind debtors
 - `digest.py`, `subscriptions.py`, `roadmap.py`, `admin.py`
 
-### Middleware / filters
-- `command_access.py` — роли и дневные лимиты в ЛС (команды **и** callback); счётчик в `user_command_usage_daily`
+### Middleware / filters / security helpers
+- `command_access.py` — роли и дневные лимиты **только в ЛС** (команды и callback); счётчик в `user_command_usage_daily`. В группе не применяется.
+- `approved_member_callback_only` — групповые inline-кнопки (участие, split bill).
+- `can_view_command_hint()` в `utils/command_policy.py` — доступ к подсказкам `menu_cmd_*`.
+- `parse_callback_suffix_int` / `parse_callback_split_int` в `utils/callbacks.py`.
 - `topic_discoverer.py` — автообнаружение тем форума
 - `latency_metrics.py` — p50/p95/p99
 
@@ -151,13 +155,17 @@ Definition of Done:
 
 ## Роли и доступ
 
-- **Owner** — полный доступ
-- **Admin** — расширенный, с лимитами
-- **Approved member** — пользовательские команды
+- **Owner** — полный доступ (`OWNER_ID`)
+- **Admin** — расширенный, с лимитами (`ADMIN_IDS`)
+- **Approved member** — запись в `approved_members` (после `approve_user_*` или уже существующая); пользовательские команды из `MEMBER_ALLOWED_COMMANDS`
 - **Outsider** — `start`, `donate` (по умолчанию)
 
-Центр: `middleware/command_access.py` + `config.py` + `bot/commands.py`
-Дневные лимиты хранятся в PostgreSQL (`user_command_usage_daily`), действуют на команды и callback в ЛС.
+**Не путать:** членство в Telegram-группе ≠ approved member. Авто-upsert при вступлении в группу отключён.
+
+Центр для ЛС: `middleware/command_access.py` + `config.py` + `bot/commands.py`
+Групповые callback: проверки в хендлерах (`@approved_member_callback_only`, `_can_manage_event`, `_can_view_event`).
+
+Дневные лимиты в PostgreSQL (`user_command_usage_daily`), действуют на команды и callback в ЛС.
 
 ---
 
@@ -165,14 +173,16 @@ Definition of Done:
 
 1. Не ломать совместимость команд без migration-плана.
 2. SQL только параметризованный (asyncpg).
-3. HTML — экранировать пользовательский ввод.
-4. HTTP — timeout + exception handling.
-5. Бизнес-логику не дублировать — shared/services/utils.
-6. Новый домен БД — отдельный модуль в `bot/db/`, экспорт через `bot/db/__init__.py`.
-7. Нетривиальные сценарии — тест.
-8. Изменил UX → `design.py` + help + README + промт + тесты.
-9. Новые фразы — в `BRAND_VOICE`, не в handlers.
-10. Не коммитить секреты (.env, токены).
+3. HTML — `html.escape()` для пользовательского ввода (события, split bill, админ-ответы).
+4. Callback `data` — `parse_callback_suffix_int` / `parse_callback_split_int`, не голый `int(split(...))`.
+5. HTTP — timeout + exception handling.
+6. Бизнес-логику не дублировать — shared/services/utils.
+7. Новый домен БД — отдельный модуль в `bot/db/`, экспорт через `bot/db/__init__.py`.
+8. Нетривиальные сценарии — тест (`test_security_helpers.py`, `test_access_and_flows.py`).
+9. Изменил UX → `design.py` + help + README + промт + тесты.
+10. Новые фразы — в `BRAND_VOICE`, не в handlers.
+11. Не коммитить секреты (.env, токены).
+12. Групповые callback — явная проверка прав; не полагаться на `CommandAccessMiddleware`.
 
 ---
 
@@ -188,15 +198,15 @@ docker compose up -d --build
 docker compose ps   # health: postgres + bot
 ```
 
-PostgreSQL: `deploy/postgresql.vds.conf`, лимит 768M. Бот: 512M.
+PostgreSQL: `deploy/postgresql.vds.conf` + `deploy/pg_hba.docker.conf`, лимит 768M. Бот: 512M. **Не публиковать** 5432 на хост.
 
 Бэкапы:
 ```bash
-./deploy/backup_db.sh
+./deploy/backup_db.sh   # chmod 600 на .sql.gz и .sha256
 ./deploy/verify_backup.sh backups/adventure_time_*.sql.gz
 ./deploy/restore_db.sh backups/adventure_time_*.sql.gz   # осознанный откат
 ```
-Cron-пример: `deploy/backup-cron.example`, retention: `BACKUP_RETENTION_DAYS`.
+Cron-пример: `deploy/backup-cron.example`, retention: `BACKUP_RETENTION_DAYS`. Дамп содержит PII — хранить с ограниченным доступом.
 
 ---
 
@@ -205,12 +215,14 @@ Cron-пример: `deploy/backup-cron.example`, retention: `BACKUP_RETENTION_DA
 1. **FSM завис** — onboarding_guard, middleware, state filters
 2. **Не публикуется в тему** — права бота, `message_thread_id`, GROUP_ID
 3. **Нет данных в БД** — DATABASE_URL / PG*, postgres healthy, AUTO_INIT_DB
-4. **Команда недоступна** — allowlist, approved_member, лимиты (в т.ч. callback)
-5. **/donate без кнопок** — не заданы DONATION_SBERBANK_URL / DONATION_TBANK_URL
-6. **Тексты разъехались** — забыли обновить `design.py` и help
-7. **iOS: ссылка на карточку открывает группу** — в `build_event_message_link` нужен `thread_id` темы; перепубликовать афишу после фикса
-8. **bot unhealthy** — heartbeat не обновляется; смотреть `docker compose logs bot`, `BOT_HEARTBEAT_PATH`
-9. **ImportError из bot.database** — символ не в `bot/db/__init__.py` `__all__`
+4. **Команда недоступна** — allowlist, `approved_members`, лимиты (в т.ч. callback в ЛС)
+5. **В группе, но бот не пускает** — нет записи в `approved_members`; нужен `approve_user_*`
+6. **/donate без кнопок** — не заданы DONATION_SBERBANK_URL / DONATION_TBANK_URL
+7. **Тексты разъехались** — забыли обновить `design.py` и help
+8. **iOS: ссылка на карточку открывает группу** — в `build_event_message_link` нужен `thread_id` темы; перепубликовать афишу после фикса
+9. **bot unhealthy** — heartbeat не обновляется; смотреть `docker compose logs bot`, `BOT_HEARTBEAT_PATH`
+10. **ImportError из bot.database** — символ не в `bot/db/__init__.py` `__all__`
+11. **Резерв сдвинулся без отказа** — проверить `decline_*`: `move_from_waitlist` только если `remove_participant` вернул True
 
 ---
 
@@ -226,6 +238,7 @@ Cron-пример: `deploy/backup-cron.example`, retention: `BACKUP_RETENTION_DA
 
 ## Changelog (кратко, для ориентира)
 
+- **2026-07 безопасность:** approved_members отдельно от Telegram-группы; HTML-escape split bill; decline_* + резерв; IDOR myevent; pg_hba; backup chmod 600; menu_cmd policy; safe callback parse
 - `bot/db/` вместо монолита `database_pg.py`
 - Лимиты в PG + callbacks; индексы; DROP `reminder_jobs`
 - Attendance confirm, ride_seeker, copy event, category push, quiet hours

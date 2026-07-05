@@ -29,7 +29,7 @@ from bot.keyboards import event_actions, period_keyboard
 
 from bot.texts import format_event_message
 from bot.utils.helpers import get_user_mention, build_event_message_link, parse_int_arg
-from bot.utils.callbacks import finalize_callback
+from bot.utils.callbacks import finalize_callback, parse_callback_split_int, parse_callback_suffix_int
 from bot.utils.telegram_errors import ack_callback
 from bot.utils.roles import is_admin_or_owner
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
@@ -72,6 +72,31 @@ async def _can_manage_event(event_id: int, user_id: int) -> tuple[bool, dict | N
         return False, None
     if user_id == event["creator_id"] or is_admin_or_owner(user_id):
         return True, event
+    return False, event
+
+
+async def _can_view_event(event_id: int, user_id: int) -> tuple[bool, dict | None]:
+    """Проверяет, может ли пользователь открыть карточку мероприятия в ЛС."""
+    event = await get_event(event_id)
+    if not event:
+        return False, None
+
+    if is_admin_or_owner(user_id):
+        return True, event
+
+    if user_id in {
+        int(event["creator_id"]),
+        int(event.get("responsible_id") or 0),
+    }:
+        return True, event
+
+    going, waitlist = await asyncio.gather(
+        get_main_participants(event_id),
+        get_participants(event_id, "waitlist"),
+    )
+    if user_id in going or user_id in waitlist:
+        return True, event
+
     return False, event
 
 
@@ -195,10 +220,17 @@ async def copy_event_from_list(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("myevent_"))
 async def show_my_event(callback: CallbackQuery):
     await ack_callback(callback)
-    event_id = int(callback.data.split("_")[1])
-    event = await get_event(event_id)
+    event_id = parse_callback_split_int(callback.data, index=1, min_parts=2)
+    if event_id is None:
+        await finalize_callback(callback, "Некорректный ID", show_alert=True)
+        return
+
+    allowed, event = await _can_view_event(event_id, callback.from_user.id)
     if not event:
         await finalize_callback(callback, "Мероприятие не найдено", show_alert=True)
+        return
+    if not allowed:
+        await finalize_callback(callback, "Нет доступа к этому мероприятию", show_alert=True)
         return
 
     going, waitlist = await asyncio.gather(

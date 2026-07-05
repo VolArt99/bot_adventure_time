@@ -16,7 +16,7 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.utils.callbacks import finalize_callback
+from bot.utils.callbacks import finalize_callback, parse_callback_split_int, parse_callback_suffix_int
 from bot.utils.telegram_errors import safe_callback_answer
 from bot.utils.roles import is_admin_or_owner
 from bot.utils.design import brand_voice
@@ -180,7 +180,10 @@ async def update_event_message(
 @router.callback_query(F.data.startswith("join_"))
 @approved_member_callback_only
 async def join_event(callback: CallbackQuery):
-    event_id = int(callback.data.split("_")[1])
+    event_id = parse_callback_split_int(callback.data, index=1, min_parts=2)
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
     user_id = callback.from_user.id
     if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="join"):
         return
@@ -211,7 +214,10 @@ async def join_event(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("waitlist_"))
 @approved_member_callback_only
 async def waitlist_event(callback: CallbackQuery):
-    event_id = int(callback.data.split("_")[1])
+    event_id = parse_callback_split_int(callback.data, index=1, min_parts=2)
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
     user_id = callback.from_user.id
     if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="waitlist"):
         return
@@ -239,7 +245,10 @@ async def waitlist_event(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("seek_ride_"))
 @approved_member_callback_only
 async def seek_ride_toggle(callback: CallbackQuery):
-    event_id = int(callback.data.removeprefix("seek_ride_"))
+    event_id = parse_callback_suffix_int(callback.data, prefix="seek_ride_")
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
     user_id = callback.from_user.id
     if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="seek_ride"):
         return
@@ -266,8 +275,12 @@ async def seek_ride_toggle(callback: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("confirm_attendance_"))
+@approved_member_callback_only
 async def confirm_attendance(callback: CallbackQuery):
-    event_id = int(callback.data.removeprefix("confirm_attendance_"))
+    event_id = parse_callback_suffix_int(callback.data, prefix="confirm_attendance_")
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
     user_id = callback.from_user.id
     event = await get_event(event_id)
     if not event or event["status"] != "active":
@@ -282,16 +295,24 @@ async def confirm_attendance(callback: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("decline_attendance_"))
+@approved_member_callback_only
 async def decline_attendance(callback: CallbackQuery):
-    event_id = int(callback.data.removeprefix("decline_attendance_"))
+    event_id = parse_callback_suffix_int(callback.data, prefix="decline_attendance_")
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
     user_id = callback.from_user.id
     event = await get_event(event_id)
     if not event or event["status"] != "active":
         await finalize_callback(callback, "Мероприятие недоступно", show_alert=True)
         return
+    main = await get_main_participants(event_id)
+    if user_id not in main:
+        await finalize_callback(callback, "Вы не в списке участников", show_alert=True)
+        return
     await set_attendance_response(event_id, user_id, "declined")
-    await remove_participant(event_id, user_id)
-    moved_user = await move_from_waitlist(event_id)
+    removed = await remove_participant(event_id, user_id)
+    moved_user = await move_from_waitlist(event_id) if removed else None
     if moved_user:
         from bot.utils.notifications import send_private_dm
 
@@ -311,7 +332,10 @@ async def decline_attendance(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("driver_"))
 @approved_member_callback_only
 async def become_driver(callback: CallbackQuery, state: FSMContext):
-    event_id = int(callback.data.split("_")[1])
+    event_id = parse_callback_split_int(callback.data, index=1, min_parts=2)
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
     user_id = callback.from_user.id
     if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="decline"):
         return
@@ -380,7 +404,10 @@ async def process_car_seats(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("passenger_"))
 @approved_member_callback_only
 async def become_passenger(callback: CallbackQuery):
-    event_id = int(callback.data.split("_")[1])
+    event_id = parse_callback_split_int(callback.data, index=1, min_parts=2)
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
     user_id = callback.from_user.id
     event = await get_event(event_id)
     if not event or event["status"] != "active":
@@ -432,9 +459,11 @@ async def become_passenger(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("choose_driver_"))
 @approved_member_callback_only
 async def choose_driver(callback: CallbackQuery):
-    parts = callback.data.split("_")
-    event_id = int(parts[2])
-    driver_id = int(parts[3])
+    event_id = parse_callback_split_int(callback.data, index=2, min_parts=4)
+    driver_id = parse_callback_split_int(callback.data, index=3, min_parts=4)
+    if event_id is None or driver_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
     user_id = callback.from_user.id
     # Добавляем пассажира
     success = await add_passenger(event_id, user_id, driver_id)
@@ -459,19 +488,22 @@ async def choose_driver(callback: CallbackQuery):
 
 
 # Модифицируем функцию decline_event, чтобы учитывать удаление водителя и его пассажиров
-@router.callback_query(F.data.startswith("decline_"))
+@router.callback_query(F.data.regexp(r"^decline_\d+$"))
+@approved_member_callback_only
 async def decline_event(callback: CallbackQuery):
-    event_id = int(callback.data.split("_")[1])
+    event_id = parse_callback_split_int(callback.data, index=1, min_parts=2)
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
     user_id = callback.from_user.id
     event = await get_event(event_id)
     if not event:
         await finalize_callback(callback, "Мероприятие не найдено", show_alert=True)
         return
-    # Удаляем участника (и если водитель, то и всех его пассажиров)
-    await remove_participant(event_id, user_id)
-    # Уведомляем пассажиров, если удалён водитель (это делается в remove_participant, но можно добавить уведомления)
-    # Для простоты уведомления не отправляем, но можно добавить
-    # Освободилось место? Перемещаем из резерва
+    removed = await remove_participant(event_id, user_id)
+    if not removed:
+        await finalize_callback(callback, "Вы не записаны на это мероприятие", show_alert=True)
+        return
     moved_user = await move_from_waitlist(event_id)
     if moved_user:
         from bot.utils.notifications import send_private_dm
@@ -490,7 +522,10 @@ async def decline_event(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("delete_"))
 async def delete_event(callback: CallbackQuery):
-    event_id = int(callback.data.split("_")[1])
+    event_id = parse_callback_split_int(callback.data, index=1, min_parts=2)
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
     event = await get_event(event_id)
     if not event:
         await finalize_callback(callback, "Мероприятие не найдено", show_alert=True)

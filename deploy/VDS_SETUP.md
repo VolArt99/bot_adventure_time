@@ -357,10 +357,12 @@ docker compose up -d
 | Действие | Ожидаемый результат |
 |----------|---------------------|
 | `/status` в ЛС | «Компаньон на связи» |
-| `/menu` (участник группы) | сезонная шапка и разделы; в «События» — `/edit_event` |
+| `/menu` (одобренный участник) | сезонная шапка и разделы; в «События» — `/edit_event` |
 | `/help` | все команды участника (+ админ-блок для админов) |
 | `/debug_info` (админ) | корректный GROUP_ID |
+| `/menu` → `menu_cmd_debug_info` (участник) | «Недостаточно прав» — админ-подсказки скрыты |
 | Сообщение в теме форума | тема в `/list_topics` |
+| Участник в группе без `approve_user_*` | `/start` → «бот ещё не подтвердил доступ» |
 
 Если `/debug_info` показывает неверный GROUP_ID — исправьте `.env` (§5.2) и `docker compose restart bot`.
 
@@ -407,7 +409,9 @@ bash deploy/backup_db.sh
 ls -lh backups/
 ```
 
-Скрипт пишет `pg_dump --clean --if-exists`, sha256 (`.sha256`), лог в `backups/backup.log` и удаляет файлы старше `BACKUP_RETENTION_DAYS` (по умолчанию 14).
+Скрипт пишет `pg_dump --clean --if-exists`, sha256 (`.sha256`), лог в `backups/backup.log`, выставляет **`chmod 600`** на архив и checksum, удаляет файлы старше `BACKUP_RETENTION_DAYS` (по умолчанию 14).
+
+> Дамп содержит персональные данные участников и реквизиты split bill. Каталог `backups/` не должен быть доступен извне; проверьте `ls -l backups/` — права `-rw-------`.
 
 Проверка целостности:
 
@@ -598,16 +602,16 @@ sudo systemctl restart ssh.socket
 
 ### `Connection refused` к PostgreSQL (`172.x.x.x`, 5432)
 
-**Причина:** в `deploy/postgresql.vds.conf` не было `listen_addresses = '*'`. Healthcheck (`pg_isready` на localhost) проходит, а бот из другого контейнера — нет.
+**Причина:** в `deploy/postgresql.vds.conf` не было `listen_addresses = '*'`, или после обновления не подключён `pg_hba.docker.conf`.
 
 **Решение:**
 
 ```bash
 cd /opt/bot_adventure_time
-git pull   # в postgresql.vds.conf должны быть listen_addresses = '*' и port = 5432
-docker compose restart postgres
+git pull   # postgresql.vds.conf + pg_hba.docker.conf + hba_file в docker-compose.yml
+docker compose down
+docker compose up -d --build
 docker compose logs --tail=20 postgres
-docker compose up -d --build bot
 ```
 
 Проверка из контейнера бота:
@@ -641,6 +645,14 @@ docker compose up -d --build
 docker compose down -v
 docker compose up -d --build
 ```
+
+### Участник в группе, но бот пишет «доступ не подтверждён»
+
+**Причина:** пользователь в Telegram-группе, но **не** в таблице `approved_members` (добавлен в группу в обход бота).
+
+**Решение:**
+1. Участник проходит `/start` → заявка → владелец жмёт «Одобрить» в ЛС (`approve_user_*`).
+2. Или владелец вручную синхронизирует уже одобренных через `/sync_members` (удаляет выбывших, не добавляет всех из группы автоматически).
 
 ### Бот падает на `Update | None` в main.py
 
@@ -685,10 +697,12 @@ docker compose up -d --build
 
 **§6 Проверка**
 - [ ] `/status`, `/menu`, `/debug_info` работают
+- [ ] Одобренный участник видит команды; неодобренный в группе — сообщение о необходимости approve
 
 **§7 Эксплуатация**
 - [ ] Systemd unit включён
 - [ ] Cron бэкапа настроен
+- [ ] `ls -l backups/` — файлы с правами `-rw-------` (600)
 
 ---
 
@@ -720,7 +734,11 @@ docker compose up -d --build
 | ОС + Docker | ~300–500 МБ |
 | **Итого** | ~1–1.2 ГиБ |
 
-**PostgreSQL** (`deploy/postgresql.vds.conf` → `docker-compose.yml`):
+**PostgreSQL** (`deploy/postgresql.vds.conf` + `deploy/pg_hba.docker.conf` → `docker-compose.yml`):
 
+- `listen_addresses='*'` **внутри контейнера** — нужно для подключения бота по имени `postgres`; снаружи порт не проброшен (`expose`, не `ports`)
+- `pg_hba.docker.conf` — клиенты только с private-подсетей (10/8, 172.16/12, 192.168/16, localhost)
 - `shared_buffers=128MB` — не повышать без теста
 - `max_connections=20`, пул бота — до 5
+
+**Не добавляйте** `ports: "5432:5432"` у postgres — это откроет БД на хост.

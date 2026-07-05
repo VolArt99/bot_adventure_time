@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+from html import escape
 
 import aiogram
 from aiogram import F, Router
@@ -12,6 +13,7 @@ from aiogram.types import CallbackQuery, Message
 from bot.utils.callbacks import finalize_callback
 from bot.utils.helpers import build_owner_contact_html
 from bot.utils.design import brand_voice
+from bot.utils.command_policy import can_view_command_hint
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 from bot.utils.roles import is_admin_or_owner as has_admin_or_owner, is_owner
 
@@ -58,6 +60,7 @@ from .views import (
     build_command_action_text,
     build_donation_text,
     build_donation_unavailable_text,
+    build_group_member_bot_access_denied_text,
     build_group_rules_text,
     build_help_text,
     build_main_menu_text,
@@ -89,11 +92,16 @@ async def cmd_start(message: Message):
     await get_or_create_user(user_id, username)
     try:
         if await is_user_in_group(message, user_id=user_id):
+            if not await is_member_approved(user_id):
+                await message.answer(
+                    build_group_member_bot_access_denied_text(owner_contact_html=_owner_contact_html()),
+                    parse_mode="HTML",
+                )
+                return
+
             existing = await get_approved_member(user_id)
             intro_status = "completed"
             if existing and existing.get("intro_status") == "pending":
-                intro_status = "pending"
-            elif not existing:
                 intro_status = "pending"
             await upsert_approved_member(user_id, username, full_name, intro_status=intro_status)
             if intro_status == "pending":
@@ -120,12 +128,18 @@ async def rules_ack(callback: CallbackQuery):
     user = callback.from_user
     full_name = " ".join(filter(None, [user.first_name, user.last_name])).strip()
     if await is_user_in_group(callback.message, user_id=user.id):
-        existing = await get_approved_member(user.id)
-        intro_status = "completed" if existing and existing.get("intro_status") == "completed" else "pending"
-        await upsert_approved_member(user.id, user.username, full_name, intro_status=intro_status)
-        await callback.message.answer(build_rules_accepted_existing_member_text())
-        if intro_status == "pending":
-            await notify_owner_about_member_start(callback.message)
+        if not await is_member_approved(user.id):
+            await callback.message.answer(
+                build_group_member_bot_access_denied_text(owner_contact_html=_owner_contact_html()),
+                parse_mode="HTML",
+            )
+        else:
+            existing = await get_approved_member(user.id)
+            intro_status = "completed" if existing and existing.get("intro_status") == "completed" else "pending"
+            await upsert_approved_member(user.id, user.username, full_name, intro_status=intro_status)
+            await callback.message.answer(build_rules_accepted_existing_member_text())
+            if intro_status == "pending":
+                await notify_owner_about_member_start(callback.message)
     else:
         await add_pending_user(user.id, user.username, full_name)
         await notify_owner_about_request(callback)
@@ -472,7 +486,9 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
 
             metrics = await get_admin_report_metrics()
             top_categories = metrics["top_categories"]
-            categories_text = "\n".join(f"• {row['category']} — {row['cnt']}" for row in top_categories) if top_categories else "• пока нет данных"
+            categories_text = "\n".join(
+                f"• {escape(str(row['category']))} — {row['cnt']}" for row in top_categories
+            ) if top_categories else "• пока нет данных"
             await callback.message.answer(
                 "<b>Админ · отчёт</b>\n\n"
                 f"Активные: <b>{metrics['active_events']}</b>\n"
@@ -529,11 +545,21 @@ async def _replace_callback_message(callback: CallbackQuery, text: str, *, reply
 @router.callback_query(F.data.startswith("menu_cmd_"))
 async def menu_command_callback(callback: CallbackQuery):
     command_key = callback.data.removeprefix("menu_cmd_")
+    user_id = callback.from_user.id
+    is_admin_or_owner = has_admin_or_owner(user_id)
+    is_approved = await is_member_approved(user_id)
+    if not can_view_command_hint(
+        command_key,
+        user_id,
+        is_approved_member=is_approved,
+    ):
+        await finalize_callback(callback, "Недостаточно прав для этой команды", show_alert=True)
+        return
+
     text = build_command_action_text(command_key)
     if not text:
         await finalize_callback(callback, "Команда недоступна", show_alert=True)
         return
-    is_admin_or_owner = has_admin_or_owner(callback.from_user.id)
     await _replace_callback_message(
         callback,
         text,
@@ -645,7 +671,7 @@ async def cmd_debug_info(message: Message):
         )
         await message.answer(text, parse_mode="HTML")
     except Exception as e:
-        await message.answer(f"❌ Ошибка диагностики: {e}")
+        await message.answer(f"❌ Ошибка диагностики: {escape(str(e))}")
 
 
 @router.message(Command("list_topics"))
@@ -669,7 +695,8 @@ async def list_topics(message: Message):
 
     response = f"⚠️ Найдено тем: <b>{len(topics)}</b>\n\n"
     for topic in topics:
-        response += f"🚀 <b>{topic['name']}</b> "
+        safe_name = escape(str(topic["name"]))
+        response += f"🚀 <b>{safe_name}</b> "
         response += f" ID темы: <code>{topic['message_thread_id']}</code>\n"
 
     await message.answer(response, parse_mode="HTML")

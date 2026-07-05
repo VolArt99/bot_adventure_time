@@ -49,8 +49,11 @@ async def add_participant(
     return True
 
 
-async def remove_participant(event_id: int, user_id: int):
-    """Удаляет участника из события (и пассажиров если водитель)."""
+async def remove_participant(event_id: int, user_id: int) -> bool:
+    """Удаляет участника из события (и пассажиров если водитель).
+
+    Возвращает True, если участник был в списке до удаления.
+    """
     result = await _run_query(
         """
         SELECT status FROM participants
@@ -62,19 +65,21 @@ async def remove_participant(event_id: int, user_id: int):
         },
     )
 
-    if result[0].rows:
-        status = result[0].rows[0].status
-        if status == "driver":
-            await _run_query(
-                """
-                DELETE FROM participants
-                WHERE event_id = $event_id AND passenger_of = $driver_id
-                """,
-                parameters={
-                    "event_id": event_id,
-                    "driver_id": user_id,
-                },
-            )
+    if not result[0].rows:
+        return False
+
+    status = result[0].rows[0].status
+    if status == "driver":
+        await _run_query(
+            """
+            DELETE FROM participants
+            WHERE event_id = $event_id AND passenger_of = $driver_id
+            """,
+            parameters={
+                "event_id": event_id,
+                "driver_id": user_id,
+            },
+        )
 
     await _run_query(
         """
@@ -86,6 +91,7 @@ async def remove_participant(event_id: int, user_id: int):
             "user_id": user_id,
         },
     )
+    return True
 
 
 async def get_participants(event_id: int, status: str = None) -> List[int]:

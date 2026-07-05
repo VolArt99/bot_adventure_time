@@ -11,10 +11,13 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/postgresql.vds.conf:/etc/postgresql/postgresql.conf:ro
+      - ./deploy/pg_hba.docker.conf:/etc/postgresql/pg_hba.conf:ro
     command:
       - postgres
       - -c
       - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
       - -c
       - listen_addresses=*
     mem_limit: 768m

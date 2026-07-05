@@ -20,7 +20,6 @@ from bot.database import (
     increment_user_daily_command_count,
     is_member_approved,
     record_command_usage,
-    upsert_approved_member,
 )
 from bot.utils.roles import is_admin, is_owner
 from bot.utils.telegram_errors import safe_callback_answer
@@ -232,22 +231,9 @@ class CommandAccessMiddleware(BaseMiddleware):
         except (TelegramForbiddenError, TelegramBadRequest):
             in_group = False
 
-        from_user = event.from_user
         if is_approved_member and not in_group:
             await delete_approved_member(user_id)
             return False
-
-        if in_group and not is_approved_member and from_user:
-            full_name = " ".join(
-                filter(None, [from_user.first_name, from_user.last_name])
-            ).strip()
-            await upsert_approved_member(
-                user_id,
-                from_user.username,
-                full_name,
-                intro_status="pending",
-            )
-            return True
 
         return is_approved_member
 

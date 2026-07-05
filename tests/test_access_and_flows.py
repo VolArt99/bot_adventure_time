@@ -112,6 +112,7 @@ class CommonCommandFlowTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("bot.handlers.common_feature.handlers.get_or_create_user", new=AsyncMock()),
             patch("bot.handlers.common_feature.handlers.is_user_in_group", new=AsyncMock(return_value=True)),
+            patch("bot.handlers.common_feature.handlers.is_member_approved", new=AsyncMock(return_value=True)),
             patch(
                 "bot.handlers.common_feature.handlers.get_approved_member",
                 new=AsyncMock(return_value={"intro_status": "completed"}),
@@ -251,6 +252,38 @@ class ParticipationTransitionsTests(unittest.IsolatedAsyncioTestCase):
             await participation.waitlist_event(callback)
 
         finalize_callback.assert_awaited()
+
+    async def test_decline_skips_waitlist_when_user_not_participant(self):
+        callback = _FakeCallback(user_id=11, data="decline_100")
+        event = {"id": 100, "status": "active", "thread_id": 1, "message_id": 2, "title": "Test"}
+
+        with (
+            patch("bot.filters.approved_member.is_member_approved", new=AsyncMock(return_value=True)),
+            patch("bot.handlers.participation.get_event", new=AsyncMock(return_value=event)),
+            patch("bot.handlers.participation.remove_participant", new=AsyncMock(return_value=False)) as remove_participant,
+            patch("bot.handlers.participation.move_from_waitlist", new=AsyncMock()) as move_from_waitlist,
+            patch("bot.handlers.participation.finalize_callback", new=AsyncMock()) as finalize_callback,
+        ):
+            await participation.decline_event(callback)
+
+        remove_participant.assert_awaited_once_with(100, 11)
+        move_from_waitlist.assert_not_awaited()
+        finalize_callback.assert_awaited()
+
+    async def test_start_in_group_without_bot_approval_does_not_upsert(self):
+        message = _FakeMessage(user_id=11, text="/start")
+        message.from_user = SimpleNamespace(id=11, username="u", first_name="A", last_name="B")
+
+        with (
+            patch("bot.handlers.common_feature.handlers.get_or_create_user", new=AsyncMock()),
+            patch("bot.handlers.common_feature.handlers.is_user_in_group", new=AsyncMock(return_value=True)),
+            patch("bot.handlers.common_feature.handlers.is_member_approved", new=AsyncMock(return_value=False)),
+            patch("bot.handlers.common_feature.handlers.upsert_approved_member", new=AsyncMock()) as upsert_approved_member,
+        ):
+            await common.cmd_start(message)
+
+        upsert_approved_member.assert_not_awaited()
+        message.answer.assert_awaited()
 
 
 if __name__ == "__main__":

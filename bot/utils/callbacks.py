@@ -5,6 +5,37 @@ from bot.utils.telegram_errors import safe_callback_answer
 from bot.utils.ui import safe_delete_bot_message
 
 
+def parse_callback_suffix_int(data: str | None, *, prefix: str) -> int | None:
+    """Парсит целое из callback.data после фиксированного префикса."""
+    if not data or not data.startswith(prefix):
+        return None
+    suffix = data[len(prefix) :]
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
+
+
+def parse_callback_split_int(
+    data: str | None,
+    *,
+    index: int,
+    min_parts: int | None = None,
+    separator: str = "_",
+) -> int | None:
+    """Парсит целое из сегмента callback.data, разделённого separator."""
+    if not data:
+        return None
+    parts = data.split(separator)
+    if min_parts is not None and len(parts) < min_parts:
+        return None
+    if index < 0 or index >= len(parts):
+        return None
+    segment = parts[index]
+    if not segment.isdigit():
+        return None
+    return int(segment)
+
+
 async def finalize_callback(
     callback: CallbackQuery,
     text: str | None = None,

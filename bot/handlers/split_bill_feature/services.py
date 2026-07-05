@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from html import escape
 
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -74,25 +75,28 @@ async def format_split_bill_text(
     paid_count = sum(1 for p in participants if p.get("is_paid"))
     waiting_count = max(0, len(participants) - paid_count)
     progress_bar = build_payment_progress_bar(paid_count, len(participants))
-    total_amount = float(bill.get("total_amount") or 0)
+    total_amount_value = float(bill.get("total_amount") or 0)
     collected_amount = sum(float(p.get("share_amount") or 0) for p in participants if p.get("is_paid"))
     bank = (
         bill.get("transfer_bank_custom")
         if bill.get("transfer_bank") == "other"
         else bill.get("transfer_bank")
     ) or "—"
+    title = escape(str(bill.get("title") or "—"))
+    status = escape(str(bill.get("status") or "—"))
+    total_amount_text = escape(str(bill.get("total_amount") or "0"))
 
     lines = [
         *card_header(BRAND["money"], "Разделение чека", "Карточка сбора и статусы оплат"),
         f"🆔 ID: <code>{split_id}</code>",
-        f"🧾 Название: <b>{bill.get('title') or '—'}</b>",
-        f"📌 Статус: <b>{bill.get('status')}</b>",
+        f"🧾 Название: <b>{title}</b>",
+        f"📌 Статус: <b>{status}</b>",
         f"👤 Организатор: {organizer_mention}",
-        f"💰 Сумма: <b>{bill.get('total_amount')} ₽</b>",
+        f"💰 Сумма: <b>{total_amount_text} ₽</b>",
         *card_section(
             "Сбор средств",
             [
-                money_collection_line(collected_amount, total_amount),
+                money_collection_line(collected_amount, total_amount_value),
                 progress_bar,
                 f"Оплачено: <b>{paid_count}</b> / ждём: <b>{waiting_count}</b>",
                 f"👥 участников: <b>{len(participants)}</b>",
@@ -101,10 +105,10 @@ async def format_split_bill_text(
         *card_section(
             "Реквизиты",
             [
-                f"• Тип: {bill.get('transfer_target_type') or '—'}",
-                f"• Куда: {bill.get('transfer_target_value') or '—'}",
-                f"• Банк: {bank}",
-                f"• Получатель: {bill.get('transfer_recipient_name') or '—'}",
+                f"• Тип: {escape(str(bill.get('transfer_target_type') or '—'))}",
+                f"• Куда: {escape(str(bill.get('transfer_target_value') or '—'))}",
+                f"• Банк: {escape(str(bank))}",
+                f"• Получатель: {escape(str(bill.get('transfer_recipient_name') or '—'))}",
             ],
         ),
     ]
