@@ -437,6 +437,18 @@ def carpool_keyboard(back_callback: str | None = None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def event_responsible_keyboard(back_callback: str | None = None) -> InlineKeyboardMarkup:
+    """Кнопки выбора ответственного при создании мероприятия."""
+    rows = [
+        [InlineKeyboardButton(text="👤 Я — ответственный", callback_data="event_resp_self")],
+        [InlineKeyboardButton(text="✏️ Указать другого", callback_data="event_resp_other")],
+    ]
+    if back_callback:
+        rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=back_callback)])
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_create")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def category_groups_keyboard(category_groups: dict[str, dict], back_callback: str | None = None) -> InlineKeyboardMarkup:
     """Клавиатура с группами категорий."""
     builder = InlineKeyboardBuilder()

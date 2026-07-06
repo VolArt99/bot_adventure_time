@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, patch
 os.environ.setdefault("BOT_TOKEN", "test-token")
 os.environ.setdefault("OWNER_ID", "12345")
 
-admin = importlib.import_module("bot.handlers.admin")
+afisha = importlib.import_module("bot.utils.afisha")
 
 
-class AdminBroadcastTextTests(unittest.IsolatedAsyncioTestCase):
+class AfishaBroadcastTextTests(unittest.IsolatedAsyncioTestCase):
     async def test_afisha_includes_iphone_hint_when_links_present(self):
         events = [
             {
@@ -22,10 +22,10 @@ class AdminBroadcastTextTests(unittest.IsolatedAsyncioTestCase):
             }
         ]
         with patch(
-            "bot.handlers.admin.get_events_for_digest",
+            "bot.utils.afisha.get_events_for_digest",
             new=AsyncMock(return_value=events),
         ):
-            text = await admin._build_events_broadcast_text("all")
+            text = await afisha.build_events_broadcast_text("all")
 
         self.assertIn("iPhone", text)
         self.assertIn("Избранное", text)
@@ -43,10 +43,10 @@ class AdminBroadcastTextTests(unittest.IsolatedAsyncioTestCase):
             }
         ]
         with patch(
-            "bot.handlers.admin.get_events_for_digest",
+            "bot.utils.afisha.get_events_for_digest",
             new=AsyncMock(return_value=events),
         ):
-            text = await admin._build_events_broadcast_text("week")
+            text = await afisha.build_events_broadcast_text("week")
 
         self.assertNotIn("Избранное", text)
 

@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 import logging
 from typing import Awaitable, Callable
 
@@ -21,6 +20,7 @@ from bot.database import (
     is_member_approved,
     record_command_usage,
 )
+from bot.db.usage import usage_date_key
 from bot.utils.roles import is_admin, is_owner
 from bot.utils.telegram_errors import safe_callback_answer
 
@@ -43,7 +43,7 @@ class CommandAccessMiddleware(BaseMiddleware):
 
     @staticmethod
     def _today_key() -> str:
-        return datetime.now(timezone.utc).date().isoformat()
+        return usage_date_key()
 
     @staticmethod
     async def _clear_active_scenario_if_needed(
@@ -113,6 +113,15 @@ class CommandAccessMiddleware(BaseMiddleware):
             reply_target=event,
         )
 
+    @staticmethod
+    async def _is_wizard_navigation(state) -> bool:
+        if state is None:
+            return False
+        current = await state.get_state()
+        if not current:
+            return False
+        return current.startswith("CreateEvent:") or current.startswith("SplitBillCreate:")
+
     async def _handle_private_callback(
         self,
         handler: Callable[[TelegramObject, dict], Awaitable],
@@ -127,6 +136,7 @@ class CommandAccessMiddleware(BaseMiddleware):
         if action in OUTSIDER_FREE_CALLBACKS:
             return await handler(event, data)
 
+        wizard_active = await self._is_wizard_navigation(data.get("state"))
         return await self._authorize(
             handler,
             event,
@@ -135,6 +145,7 @@ class CommandAccessMiddleware(BaseMiddleware):
             action=f"cb:{action[:80]}",
             reply_target=event,
             is_callback=True,
+            skip_daily_limit=wizard_active,
         )
 
     async def _authorize(
@@ -147,6 +158,7 @@ class CommandAccessMiddleware(BaseMiddleware):
         action: str,
         reply_target: Message | CallbackQuery,
         is_callback: bool = False,
+        skip_daily_limit: bool = False,
     ):
         user_is_owner = is_owner(user_id)
         user_is_admin = is_admin(user_id)
@@ -168,6 +180,7 @@ class CommandAccessMiddleware(BaseMiddleware):
                 reply_target=reply_target,
                 is_callback=is_callback,
                 limit_text="⚠️ Дневной лимит команд для админа исчерпан. Попробуйте снова завтра.",
+                skip_daily_limit=skip_daily_limit,
             )
 
         if is_approved_member:
@@ -192,6 +205,7 @@ class CommandAccessMiddleware(BaseMiddleware):
                 reply_target=reply_target,
                 is_callback=is_callback,
                 limit_text="⚠️ Дневной лимит команд исчерпан. Попробуйте снова завтра.",
+                skip_daily_limit=skip_daily_limit,
             )
 
         if not is_callback:
@@ -219,6 +233,7 @@ class CommandAccessMiddleware(BaseMiddleware):
             reply_target=reply_target,
             is_callback=is_callback,
             limit_text="⚠️ Дневной лимит команд до одобрения исчерпан. Попробуйте снова завтра.",
+            skip_daily_limit=skip_daily_limit,
         )
 
     async def _sync_membership(self, event: Message | CallbackQuery, user_id: int) -> bool:
@@ -250,7 +265,12 @@ class CommandAccessMiddleware(BaseMiddleware):
         reply_target: Message | CallbackQuery,
         is_callback: bool,
         limit_text: str,
+        skip_daily_limit: bool = False,
     ):
+        if skip_daily_limit:
+            await record_command_usage(role, action)
+            return await handler(event, data)
+
         today = self._today_key()
         current_usage = await get_user_daily_command_count(user_id, today)
         if current_usage >= daily_limit:

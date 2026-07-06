@@ -92,6 +92,7 @@ from .usage import (
     get_user_daily_command_count,
     increment_user_daily_command_count,
     record_command_usage,
+    reset_user_daily_command_count,
 )
 from .users import get_or_create_user, get_user_id_by_username
 
@@ -152,6 +153,7 @@ __all__ = [
     "get_user_stats",
     "get_users_subscribed_to_categories",
     "increment_user_daily_command_count",
+    "reset_user_daily_command_count",
     "init_db",
     "is_member_approved",
     "mark_split_bill_paid",

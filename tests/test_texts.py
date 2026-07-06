@@ -147,7 +147,7 @@ class FeatureHelpersTest(unittest.TestCase):
         self.assertEqual(len(leftovers), 1)
 
     def test_wizard_progress_prompts(self):
-        self.assertIn("Шаг 7/12 · 📍 Маршрут", event_step_prompt(CreateEvent.location.state, "Введите место"))
+        self.assertIn("Шаг 7/13 · 📍 Маршрут", event_step_prompt(CreateEvent.location.state, "Введите место"))
         self.assertIn("Шаг 4/7 · 🗂 Публикация", split_bill_step_prompt(SplitBillCreate.target_topic.state, "Выберите тему"))
 
     def test_split_bill_payment_progress_bar(self):

@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from bot.config import GROUP_ID, TIMEZONE
-from bot.database import create_event, get_topic_name_by_thread_id, update_event_message_id
+from bot.database import create_event, get_topic_name_by_thread_id, update_event_message_id, add_participant
 from bot.constants import dedupe_categories
 from bot.keyboards import event_actions, event_preview_keyboard
 from bot.texts import format_event_message
@@ -32,26 +32,28 @@ class CreateEvent(StatesGroup):
     price = State()
     limit = State()
     carpool = State()
+    responsible = State()
     thread = State()
     category = State()
     preview = State()
 
 
 EVENT_STEP_META = {
-    CreateEvent.title.state: (1, 12, "📝 Название"),
-    CreateEvent.description.state: (2, 12, "📄 Сюжет"),
-    CreateEvent.datetime.state: (3, 12, "🗓 Выезд"),
-    CreateEvent.period_mode.state: (4, 12, "📆 Повтор"),
-    CreateEvent.period_end.state: (5, 12, "📆 Финал"),
-    CreateEvent.duration.state: (6, 12, "⏱ Длительность"),
-    CreateEvent.location.state: (7, 12, "📍 Маршрут"),
-    CreateEvent.price_mode.state: (8, 12, "💰 Расходы"),
-    CreateEvent.price.state: (9, 12, "💰 Сумма"),
-    CreateEvent.limit.state: (10, 12, "👥 Команда"),
-    CreateEvent.carpool.state: (11, 12, "🚗 Попутка"),
-    CreateEvent.thread.state: (12, 12, "🗂 Публикация"),
-    CreateEvent.category.state: (12, 12, "📂 Направление"),
-    CreateEvent.preview.state: (12, 12, "👀 Превью"),
+    CreateEvent.title.state: (1, 13, "📝 Название"),
+    CreateEvent.description.state: (2, 13, "📄 Сюжет"),
+    CreateEvent.datetime.state: (3, 13, "🗓 Выезд"),
+    CreateEvent.period_mode.state: (4, 13, "📆 Повтор"),
+    CreateEvent.period_end.state: (5, 13, "📆 Финал"),
+    CreateEvent.duration.state: (6, 13, "⏱ Длительность"),
+    CreateEvent.location.state: (7, 13, "📍 Маршрут"),
+    CreateEvent.price_mode.state: (8, 13, "💰 Расходы"),
+    CreateEvent.price.state: (9, 13, "💰 Сумма"),
+    CreateEvent.limit.state: (10, 13, "👥 Команда"),
+    CreateEvent.carpool.state: (11, 13, "🚗 Попутка"),
+    CreateEvent.responsible.state: (12, 13, "🧩 Ответственный"),
+    CreateEvent.thread.state: (13, 13, "🗂 Публикация"),
+    CreateEvent.category.state: (13, 13, "📂 Направление"),
+    CreateEvent.preview.state: (13, 13, "👀 Превью"),
 }
 
 
@@ -156,11 +158,13 @@ async def finalize_event_creation(
 ):
     event_data = await build_event_payload(state, category_value, creator_user_id)
     data = await state.get_data()
+    responsible_id = event_data.get("responsible_id", creator_user_id)
     event_id = await create_event(event_data)
+    if responsible_id != creator_user_id:
+        await add_participant(event_id, responsible_id, "going")
 
     bot = message.bot
     organizer_mention = await get_user_mention(creator_user_id, bot)
-    responsible_id = event_data.get("responsible_id", creator_user_id)
     responsible_mention = await get_user_mention(responsible_id, bot)
     mentions = {creator_user_id: organizer_mention, responsible_id: responsible_mention}
     topic_name = await get_topic_name_by_thread_id(data.get("thread_id"))

@@ -4,13 +4,27 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+import pytz
+
+from bot.config import TIMEZONE
 from ._core import _run_query
 
 logger = logging.getLogger(__name__)
+_USAGE_TZ = pytz.timezone(TIMEZONE)
+
+
+def usage_date_key(when: datetime | None = None) -> str:
+    """Ключ календарного дня для дневных лимитов (в часовом поясе бота)."""
+    moment = when or datetime.now(_USAGE_TZ)
+    if moment.tzinfo is None:
+        moment = _USAGE_TZ.localize(moment)
+    else:
+        moment = moment.astimezone(_USAGE_TZ)
+    return moment.date().isoformat()
 
 
 async def record_command_usage(role: str, command: str, usage_date: str | None = None) -> None:
-    day = usage_date or datetime.utcnow().date().isoformat()
+    day = usage_date or usage_date_key()
     try:
         prev = await _run_query(
             """
@@ -37,7 +51,7 @@ async def record_command_usage(role: str, command: str, usage_date: str | None =
 
 
 async def get_command_usage_summary(days: int = 7) -> list[dict[str, Any]]:
-    cutoff = (datetime.utcnow().date() - timedelta(days=max(0, days - 1))).isoformat()
+    cutoff = (datetime.now(_USAGE_TZ).date() - timedelta(days=max(0, days - 1))).isoformat()
     try:
         result = await _run_query(
             """
@@ -70,7 +84,7 @@ async def get_command_usage_summary(days: int = 7) -> list[dict[str, Any]]:
 
 
 async def get_user_daily_command_count(user_id: int, usage_date: str | None = None) -> int:
-    day = usage_date or datetime.utcnow().date().isoformat()
+    day = usage_date or usage_date_key()
     result = await _run_query(
         """
         SELECT usage_count
@@ -85,7 +99,7 @@ async def get_user_daily_command_count(user_id: int, usage_date: str | None = No
 
 
 async def increment_user_daily_command_count(user_id: int, usage_date: str | None = None) -> None:
-    day = usage_date or datetime.utcnow().date().isoformat()
+    day = usage_date or usage_date_key()
     current = await get_user_daily_command_count(user_id, day)
     await _run_query(
         """
@@ -95,3 +109,19 @@ async def increment_user_daily_command_count(user_id: int, usage_date: str | Non
         """,
         parameters={"user_id": int(user_id), "usage_date": day, "usage_count": current + 1},
     )
+
+
+async def reset_user_daily_command_count(user_id: int, usage_date: str | None = None) -> int:
+    """Сбрасывает дневной счётчик команд пользователя. Возвращает прежнее значение."""
+    day = usage_date or usage_date_key()
+    previous = await get_user_daily_command_count(user_id, day)
+    if previous == 0:
+        return 0
+    await _run_query(
+        """
+        DELETE FROM user_command_usage_daily
+        WHERE user_id = $user_id AND usage_date = $usage_date
+        """,
+        parameters={"user_id": int(user_id), "usage_date": day},
+    )
+    return previous

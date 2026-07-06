@@ -22,7 +22,7 @@ import bot.handlers.admin as admin
 import bot.handlers.split_bill_feature.handlers as split_bill
 from bot.utils.scheduler import restore_jobs, start_scheduler, schedule_digest
 from bot.fsm_storage_pg import PgStorage
-from bot.config import GROUP_ID
+from bot.config import GROUP_ID, DIGEST_THREAD_ID
 from bot.init_flags import should_run_schema_init
 from bot.utils.helpers import build_owner_contact_html
 from bot.utils.telegram_errors import is_benign_telegram_error
@@ -198,7 +198,7 @@ async def ensure_initialized(*, for_polling: bool = False) -> None:
             start_scheduler()
             await restore_jobs(bot)
             if GROUP_ID:
-                await schedule_digest(bot, GROUP_ID)
+                await schedule_digest(bot, GROUP_ID, DIGEST_THREAD_ID)
             from bot.utils.health import start_heartbeat
             from bot.utils.monitoring import schedule_monitoring
 

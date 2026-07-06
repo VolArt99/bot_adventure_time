@@ -1,4 +1,3 @@
-from datetime import datetime
 from html import escape
 
 from aiogram import Router
@@ -11,26 +10,22 @@ from bot.database import (
     delete_approved_member,
     get_admin_report_metrics,
     get_approved_member_ids,
-    get_events_for_digest,
     get_member_reengage_candidates,
     get_topic_name_by_thread_id,
     get_user_category_subscriptions,
+    reset_user_daily_command_count,
     upsert_approved_member,
 )
 from bot.filters.admin import admin_only
 from bot.keyboards import broadcast_topics_keyboard, period_keyboard
-from bot.texts import format_event_period
-from bot.utils.design import brand_voice
-from bot.utils.helpers import get_user_mention, build_event_message_link
-from bot.utils.ui import quote_block, ok
+from bot.utils.afisha import build_events_broadcast_text
+from bot.utils.helpers import get_user_mention, parse_int_arg
+from bot.utils.ui import ok
 from bot.utils.topics import get_topics_list_from_db
 from bot.utils.callbacks import finalize_callback
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 
-import pytz
-
 router = Router(name=__name__)
-TZ = pytz.timezone(TIMEZONE)
 
 
 @router.message(Command("admin_report"))
@@ -85,7 +80,7 @@ async def cb_send_events_list_publish(callback: CallbackQuery):
     _, _, period, thread_raw = callback.data.split("_", 3)
     thread_id = int(thread_raw) if thread_raw != "0" else None
 
-    text = await _build_events_broadcast_text(period)
+    text = await build_events_broadcast_text(period)
     await callback.bot.send_message(
         chat_id=GROUP_ID,
         text=text,
@@ -100,42 +95,31 @@ async def cb_send_events_list_publish(callback: CallbackQuery):
     await finalize_callback(callback, "Отправлено", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
-async def _build_events_broadcast_text(period: str) -> str:
-    events = await get_events_for_digest(period=period)
-    period_title = {"week": "неделю", "month": "месяц", "all": "всё время"}.get(period, "период")
-    if not events:
-        return f"📭 На ближайшее {period_title} активных мероприятий нет."
+@router.message(Command("reset_user_limit"))
+@admin_only
+async def cmd_reset_user_limit(message: Message):
+    parts = (message.text or "").split()
+    if len(parts) < 2:
+        await message.answer(
+            "Использование: <code>/reset_user_limit &lt;user_id&gt;</code>\n"
+            f"Сбрасывает дневной лимит команд участника (сутки по {TIMEZONE}).",
+            parse_mode="HTML",
+        )
+        return
 
-    lines = [quote_block(f"🗓 Актуальная афиша на {period_title}", [])]
-    has_event_links = False
-    for event in events:
-        dt = datetime.fromisoformat(event["date_time"]).astimezone(TZ)
-        period_text = format_event_period(dt, event.get("period_end"))
-        date_line = period_text or f"🗓 {dt.strftime('%d.%m.%Y %H:%M')}"
-        event_link = build_event_message_link(
-            GROUP_ID, event.get("message_id"), event.get("thread_id")
-        )
-        if event_link:
-            has_event_links = True
-        link_text = f'<a href="{event_link}">открыть сообщение</a>' if event_link else "недоступна"
-        lines.append(quote_block(
-            str(event["title"]),
-            [
-                date_line,
-                f"📍 {event.get('location') or 'не указано'}",
-                f"🆔 {event['id']}",
-                f"🔗 {link_text}",
-            ],
-            allow_html=True,
-        ))
-    if has_event_links:
-        lines.append(
-            quote_block(
-                brand_voice("afisha_iphone_hint_title"),
-                [brand_voice("afisha_iphone_hint_body")],
-            )
-        )
-    return "\n".join(lines)
+    user_id = parse_int_arg(parts[1])
+    if user_id is None:
+        await message.answer("❌ user_id должен быть числом.")
+        return
+
+    previous = await reset_user_daily_command_count(user_id)
+    await message.answer(
+        ok(
+            f"Лимит сброшен для user_id <code>{user_id}</code> "
+            f"(было использовано: {previous})."
+        ),
+        parse_mode="HTML",
+    )
 
 
 @router.message(Command("member_reengage"))

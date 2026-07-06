@@ -20,8 +20,11 @@ from bot.keyboards import (
     event_preview_keyboard,
     template_field_keyboard,
     event_datetime_keyboard,
+    event_responsible_keyboard,
 )
 from .shared import CreateEvent, event_step_prompt, parse_datetime, build_event_payload
+from .carpool import advance_after_responsible, _prompt_responsible_step
+from bot.database import get_approved_member_ids, get_user_id_by_username, is_member_approved
 from bot.utils.design import wizard_prompt, brand_voice
 from bot.utils.callbacks import finalize_callback
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
@@ -46,20 +49,7 @@ async def _advance_after_datetime(message: Message, state: FSMContext, dt: datet
     await state.update_data(date_time=dt.isoformat())
     data = await state.get_data()
     if data.get("from_copy"):
-        topics = await get_topics_list_from_db()
-        if topics:
-            await state.set_state(CreateEvent.thread)
-            await answer_private_intermediate(
-                message,
-                state,
-                event_step_prompt(CreateEvent.thread.state, "🗂 Выберите, где опубликовать копию мероприятия:"),
-                reply_markup=choose_topic_keyboard(topics, back_callback="event_back"),
-            )
-            return
-        await state.update_data(thread_id=None)
-        from .shared import show_event_preview
-
-        await show_event_preview(message, state, message.from_user.id, message.bot)
+        await _prompt_responsible_step(message, state)
         return
 
     await state.update_data(period_end=None)
@@ -220,6 +210,20 @@ async def _show_event_step_prompt(message: Message, state: FSMContext, state_nam
         await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.limit.state, wizard_prompt("limit")), reply_markup=skip_field_keyboard("limit", back_callback="event_back"))
     elif state_name == CreateEvent.carpool.state:
         await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.carpool.state, CARPOOL_HELP_TEXT), reply_markup=carpool_keyboard(back_callback="event_back"), parse_mode="HTML")
+    elif state_name == CreateEvent.responsible.state:
+        data = await state.get_data()
+        if data.get("awaiting_responsible_input"):
+            await answer_private_intermediate(
+                message,
+                state,
+                event_step_prompt(
+                    CreateEvent.responsible.state,
+                    "✏️ Введите @username или числовой user_id участника группы:",
+                ),
+                reply_markup=cancel_keyboard(back_callback="event_back"),
+            )
+        else:
+            await _prompt_responsible_step(message, state)
     elif state_name == CreateEvent.thread.state:
         topics = await get_topics_list_from_db()
         if topics:
@@ -359,11 +363,12 @@ async def event_back(callback: CallbackQuery, state: FSMContext):
         CreateEvent.price.state: CreateEvent.price_mode.state,
         CreateEvent.limit.state: CreateEvent.price_mode.state,
         CreateEvent.carpool.state: CreateEvent.limit.state,
-        CreateEvent.thread.state: CreateEvent.carpool.state,
+        CreateEvent.responsible.state: CreateEvent.carpool.state,
+        CreateEvent.thread.state: CreateEvent.responsible.state,
         CreateEvent.preview.state: CreateEvent.category.state,
     }
     if current == CreateEvent.category.state:
-        previous = CreateEvent.thread.state if data.get("thread_step_shown") else CreateEvent.carpool.state
+        previous = CreateEvent.thread.state if data.get("thread_step_shown") else CreateEvent.responsible.state
     else:
         previous = previous_map.get(current)
     if not previous:
@@ -771,3 +776,82 @@ async def process_limit(message: Message, state: FSMContext):
     await state.update_data(participant_limit=participant_limit)
     await state.set_state(CreateEvent.carpool)
     await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.carpool.state, CARPOOL_HELP_TEXT), reply_markup=carpool_keyboard(back_callback="event_back"), parse_mode="HTML")
+
+
+async def _resolve_member_user_id(raw_user: str, message: Message) -> int | None:
+    value = (raw_user or "").strip()
+    if value.isdigit():
+        return int(value)
+    username = value.lstrip("@").lower()
+    if not username:
+        return None
+    resolved = await get_user_id_by_username(username)
+    if resolved:
+        return int(resolved)
+    for uid in await get_approved_member_ids():
+        try:
+            chat = await message.bot.get_chat(uid)
+        except Exception:
+            continue
+        if (getattr(chat, "username", "") or "").lower() == username:
+            return int(uid)
+    return None
+
+
+@router.callback_query(CreateEvent.responsible, F.data == "event_resp_self")
+async def responsible_self(callback: CallbackQuery, state: FSMContext):
+    await advance_after_responsible(
+        callback.message,
+        state,
+        callback.from_user.id,
+        callback.from_user.id,
+    )
+    await finalize_callback(callback, "Вы — ответственный", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+
+
+@router.callback_query(CreateEvent.responsible, F.data == "event_resp_other")
+async def responsible_other(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(awaiting_responsible_input=True)
+    await answer_private_intermediate(
+        callback.message,
+        state,
+        event_step_prompt(
+            CreateEvent.responsible.state,
+            "✏️ Введите @username или числовой user_id участника группы:",
+        ),
+        reply_markup=cancel_keyboard(back_callback="event_back"),
+    )
+    await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+
+
+@router.message(CreateEvent.responsible, ~F.text.startswith("/"))
+async def process_responsible_input(message: Message, state: FSMContext):
+    data = await state.get_data()
+    if not data.get("awaiting_responsible_input"):
+        await _prompt_responsible_step(message, state)
+        return
+
+    responsible_id = await _resolve_member_user_id(message.text, message)
+    if not responsible_id:
+        await answer_private_intermediate(
+            message,
+            state,
+            "❌ Участник не найден. Укажите @username или числовой user_id одобренного участника.",
+            reply_markup=cancel_keyboard(back_callback="event_back"),
+        )
+        return
+    if not await is_member_approved(responsible_id):
+        await answer_private_intermediate(
+            message,
+            state,
+            "❌ Этот пользователь не является одобренным участником группы.",
+            reply_markup=cancel_keyboard(back_callback="event_back"),
+        )
+        return
+
+    await advance_after_responsible(
+        message,
+        state,
+        responsible_id,
+        message.from_user.id,
+    )

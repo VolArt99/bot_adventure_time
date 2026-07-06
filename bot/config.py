@@ -33,7 +33,7 @@ DONATION_TBANK_URL = os.getenv("DONATION_TBANK_URL", "").strip()
 
 # Дневные лимиты по отправке команд
 ADMIN_DAILY_COMMAND_LIMIT = int(os.getenv("ADMIN_DAILY_COMMAND_LIMIT", "50"))
-MEMBER_DAILY_COMMAND_LIMIT = int(os.getenv("MEMBER_DAILY_COMMAND_LIMIT", "25"))
+MEMBER_DAILY_COMMAND_LIMIT = int(os.getenv("MEMBER_DAILY_COMMAND_LIMIT", "40"))
 OUTSIDER_START_DAILY_LIMIT = int(os.getenv("OUTSIDER_START_DAILY_LIMIT", "5"))
 
 # Команды, доступные участнику группы
@@ -78,6 +78,7 @@ BOT_HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("BOT_HEARTBEAT_INTERVAL_SECONDS",
 # Настройки дайджеста
 DIGEST_DAY_OF_WEEK = int(os.getenv("DIGEST_DAY_OF_WEEK", "1"))  # Понедельник (1=Пн, 7=Вс)
 DIGEST_HOUR = int(os.getenv("DIGEST_HOUR", "10"))  # 10:00
+DIGEST_THREAD_ID = int(os.getenv("DIGEST_THREAD_ID")) if os.getenv("DIGEST_THREAD_ID") else None
 if not 1 <= DIGEST_DAY_OF_WEEK <= 7:
     raise ValueError("DIGEST_DAY_OF_WEEK должен быть в диапазоне 1..7 (1=Пн, 7=Вс).")
 if not 0 <= DIGEST_HOUR <= 23:

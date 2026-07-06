@@ -9,6 +9,7 @@ from bot.config import GROUP_ID
 from bot.database import get_events_for_digest, get_topic_name_by_thread_id
 from bot.keyboards import period_keyboard
 from bot.texts import format_digest_text
+from bot.utils.afisha import build_events_broadcast_text
 from bot.utils.helpers import get_username_by_id, build_event_message_link
 from bot.utils.callbacks import finalize_callback
 from bot.utils.telegram_errors import ack_callback
@@ -77,23 +78,19 @@ async def digest_with_period(callback: CallbackQuery):
 
 
 async def send_digest(bot, chat_id: int, thread_id: int = None):
-    """Автоматическая отправка дайджеста."""
+    """Автоматическая отправка еженедельной афиши."""
     try:
-        events = await get_events_for_digest(period="week")
-        if not events:
+        text = await build_events_broadcast_text("week")
+        if text.startswith("📭"):
             return
 
-        creator_ids = set(e["creator_id"] for e in events)
-        usernames = {}
-        for cid in creator_ids:
-            usernames[cid] = await get_username_by_id(cid, bot) or str(cid)
-
-        enriched_events = await enrich_events_with_topic_and_links(events)
-        text = format_digest_text(enriched_events, usernames, period="week")
-
         await bot.send_message(
-            chat_id=chat_id, message_thread_id=thread_id, text=text, parse_mode="HTML"
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+            text=text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
         )
-        logger.info("Дайджест отправлен")
+        logger.info("Дайджест отправлен (thread_id=%s)", thread_id)
     except Exception as e:
         logger.error(f"Ошибка отправки дайджеста: {e}")

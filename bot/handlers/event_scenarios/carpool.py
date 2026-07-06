@@ -9,6 +9,7 @@ from bot.keyboards import (
     carpool_keyboard,
     category_groups_keyboard,
     choose_topic_keyboard,
+    event_responsible_keyboard,
 )
 from bot.utils.topics import get_topics_list_from_db
 from bot.utils.callbacks import finalize_callback
@@ -44,21 +45,56 @@ async def process_carpool_callback(callback: CallbackQuery, state: FSMContext):
 
 async def process_carpool_choice(message: Message, state: FSMContext, carpool: bool):
     await state.update_data(carpool_enabled=carpool)
+    await _prompt_responsible_step(message, state)
+
+
+async def _prompt_responsible_step(message: Message, state: FSMContext) -> None:
+    await state.set_state(CreateEvent.responsible)
+    await answer_private_intermediate(
+        message,
+        state,
+        event_step_prompt(
+            CreateEvent.responsible.state,
+            "🧩 Кто будет ответственным за мероприятие?\n"
+            "Ответственный помогает с организацией и отображается на карточке, "
+            "если это не создатель.",
+        ),
+        reply_markup=event_responsible_keyboard(back_callback="event_back"),
+    )
+
+
+async def advance_after_responsible(
+    message: Message,
+    state: FSMContext,
+    responsible_id: int,
+    user_id: int,
+) -> None:
+    await state.update_data(responsible_id=responsible_id, awaiting_responsible_input=False)
 
     topics = await get_topics_list_from_db()
+    data = await state.get_data()
 
     if topics:
         await state.update_data(thread_step_shown=True)
         await state.set_state(CreateEvent.thread)
+        prompt = (
+            "🗂 Выберите, где опубликовать копию мероприятия:"
+            if data.get("from_copy")
+            else "🗂 Выберите, где опубликовать мероприятие:"
+        )
         await answer_private_intermediate(
             message,
             state,
-            event_step_prompt(CreateEvent.thread.state, "🗂 Выберите, где опубликовать мероприятие:"),
+            event_step_prompt(CreateEvent.thread.state, prompt),
             reply_markup=choose_topic_keyboard(topics, back_callback="event_back"),
         )
         return
 
     await state.update_data(thread_id=None, thread_step_shown=False)
+    if data.get("from_copy") and data.get("selected_categories"):
+        await show_event_preview(message, state, user_id, message.bot)
+        return
+
     await state.set_state(CreateEvent.category)
     await answer_private_intermediate(
         message,
