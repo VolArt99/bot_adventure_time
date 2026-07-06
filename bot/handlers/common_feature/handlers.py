@@ -24,6 +24,7 @@ from bot.config import (
     OUTSIDER_START_DAILY_LIMIT,
     OWNER_CONTACT,
     OWNER_ID,
+    TIMEZONE,
 )
 from bot.database import (
     add_pending_user,
@@ -471,7 +472,8 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
                 f"👑 Владелец — полный доступ, без лимита.\n"
                 f"🛡 Админ — все команды, лимит: {ADMIN_DAILY_COMMAND_LIMIT}/сутки.\n"
                 f"🙋 Участник — пользовательские команды, лимит: {MEMBER_DAILY_COMMAND_LIMIT}/сутки.\n"
-                f"🚪 Не участник — только /start, лимит: {OUTSIDER_START_DAILY_LIMIT}/сутки.",
+                f"🚪 Не участник — только /start, лимит: {OUTSIDER_START_DAILY_LIMIT}/сутки.\n\n"
+                f"<i>Сутки считаются по {TIMEZONE}. Callback-кнопки внутри мастеров не тратят лимит.</i>",
                 parse_mode="HTML",
             )
         else:
@@ -618,7 +620,8 @@ async def cmd_roles(message: Message):
         f"👑 Владелец — полный доступ, без лимита.\n"
         f"🛡 Админ — все команды, лимит: {ADMIN_DAILY_COMMAND_LIMIT}/сутки.\n"
         f"🙋 Участник — только пользовательские команды, лимит: {MEMBER_DAILY_COMMAND_LIMIT}/сутки.\n"
-        f"🚪 Не участник — только /start, лимит: {OUTSIDER_START_DAILY_LIMIT}/сутки.",
+        f"🚪 Не участник — только /start, лимит: {OUTSIDER_START_DAILY_LIMIT}/сутки.\n\n"
+        f"<i>Сутки считаются по {TIMEZONE}. Callback-кнопки внутри мастеров не тратят лимит.</i>",
         parse_mode="HTML",
     )
 

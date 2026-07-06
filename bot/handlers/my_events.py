@@ -20,15 +20,13 @@ from bot.database import (
     set_event_responsible,
     set_driver,
     set_passenger,
-    get_approved_member_ids,
     is_member_approved,
-    get_user_id_by_username,
     add_participant,
 )
 from bot.keyboards import event_private_keyboard, my_events_keyboard, period_keyboard
 
 from bot.texts import format_event_message
-from bot.utils.helpers import get_user_mention, build_event_message_link, parse_int_arg
+from bot.utils.helpers import get_user_mention, build_event_message_link, parse_int_arg, resolve_member_user_id
 from bot.utils.callbacks import finalize_callback, parse_callback_split_int, parse_callback_suffix_int
 from bot.utils.telegram_errors import ack_callback
 from bot.utils.roles import is_admin_or_owner
@@ -47,23 +45,7 @@ def _parse_manual_args(message: Message, expected_min: int) -> list[str] | None:
 
 
 async def _resolve_user_id(raw_user: str, message: Message) -> int | None:
-    value = (raw_user or "").strip()
-    if value.isdigit():
-        return int(value)
-    username = value.lstrip("@").lower()
-    if not username:
-        return None
-    resolved = await get_user_id_by_username(username)
-    if resolved:
-        return int(resolved)    
-    for uid in await get_approved_member_ids():
-        try:
-            chat = await message.bot.get_chat(uid)
-        except Exception:
-            continue
-        if (getattr(chat, "username", "") or "").lower() == username:
-            return int(uid)
-    return None
+    return await resolve_member_user_id(raw_user, message.bot)
 
 
 async def _can_manage_event(event_id: int, user_id: int) -> tuple[bool, dict | None]:

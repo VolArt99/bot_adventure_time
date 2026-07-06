@@ -302,6 +302,8 @@ nano .env
 | `DB_POOL_MAX_SIZE` | `5` |
 | `DONATION_SBERBANK_URL` / `DONATION_TBANK_URL` | ссылки для `/donate` |
 | `WEATHER_API_KEY` | OpenWeatherMap (опционально) |
+| `MEMBER_DAILY_COMMAND_LIMIT` | `40` — лимит команд в ЛС для участника |
+| `DIGEST_THREAD_ID` | `message_thread_id` темы для еженедельной афиши (§4.2, `/list_topics`) |
 
 > `DATABASE_URL` и `PGHOST`/`PGPASSWORD` для Docker **не нужны** — бот подключается к `postgres` через `env_file` и переменные в `docker-compose.yml`.
 

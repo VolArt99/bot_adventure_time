@@ -19,7 +19,7 @@ from bot.database import (
 from bot.filters.admin import admin_only
 from bot.keyboards import broadcast_topics_keyboard, period_keyboard
 from bot.utils.afisha import build_events_broadcast_text
-from bot.utils.helpers import get_user_mention, parse_int_arg
+from bot.utils.helpers import get_user_mention, resolve_member_user_id
 from bot.utils.ui import ok
 from bot.utils.topics import get_topics_list_from_db
 from bot.utils.callbacks import finalize_callback
@@ -101,22 +101,26 @@ async def cmd_reset_user_limit(message: Message):
     parts = (message.text or "").split()
     if len(parts) < 2:
         await message.answer(
-            "Использование: <code>/reset_user_limit &lt;user_id&gt;</code>\n"
-            f"Сбрасывает дневной лимит команд участника (сутки по {TIMEZONE}).",
+            "Использование: <code>/reset_user_limit &lt;user_id|@username&gt;</code>\n"
+            f"Сбрасывает дневной лимит команд участника (сутки по {TIMEZONE}).\n"
+            "Пример: <code>/reset_user_limit @ivan</code>",
             parse_mode="HTML",
         )
         return
 
-    user_id = parse_int_arg(parts[1])
+    user_id = await resolve_member_user_id(parts[1], message.bot)
     if user_id is None:
-        await message.answer("❌ user_id должен быть числом.")
+        await message.answer(
+            "❌ Не удалось определить пользователя. Укажите числовой user_id или @username."
+        )
         return
 
     previous = await reset_user_daily_command_count(user_id)
+    mention = await get_user_mention(user_id, message.bot)
     await message.answer(
         ok(
-            f"Лимит сброшен для user_id <code>{user_id}</code> "
-            f"(было использовано: {previous})."
+            f"Лимит сброшен для {mention} "
+            f"(<code>{user_id}</code>, было использовано: {previous})."
         ),
         parse_mode="HTML",
     )

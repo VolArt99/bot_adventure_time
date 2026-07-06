@@ -392,6 +392,7 @@ def menu_section_keyboard(section: str, is_admin_or_owner: bool = False) -> Inli
             [InlineKeyboardButton(text="📣 Список мероприятий", callback_data="menu_action_send_events_list")],
             [InlineKeyboardButton(text="💬 Молчащие участники", callback_data="menu_cmd_member_reengage")],
             [InlineKeyboardButton(text="🔄 Синхронизация", callback_data="menu_cmd_sync_members")],
+            [InlineKeyboardButton(text="🔓 Сбросить лимит", callback_data="menu_cmd_reset_user_limit")],
             [InlineKeyboardButton(text="📝 Рассказы о себе", callback_data="menu_cmd_pending_intro")],
             [
                 InlineKeyboardButton(text="🔧 Диагностика", callback_data="menu_cmd_debug_info"),

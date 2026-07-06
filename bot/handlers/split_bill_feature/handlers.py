@@ -8,13 +8,12 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from datetime import datetime
 import pytz
 
-from bot.database import is_member_approved
-from bot.database import get_approved_member_ids, get_user_events, get_user_id_by_username
+from bot.database import is_member_approved, get_user_events
 from bot.config import TIMEZONE
 from bot.keyboards import cancel_keyboard, choose_topic_keyboard, split_bill_close_confirm_keyboard
 from bot.utils.topics import get_topics_list_from_db
 from bot.utils.ui import answer_private_intermediate
-from bot.utils.helpers import parse_int_arg
+from bot.utils.helpers import parse_int_arg, resolve_member_user_id
 from bot.utils.callbacks import finalize_callback
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 from bot.filters.approved_member import approved_member_callback_only
@@ -38,26 +37,7 @@ TZ = pytz.timezone(TIMEZONE)
 
 
 async def _resolve_user_id(raw_user: str, message: Message) -> int | None:
-    value = (raw_user or "").strip()
-    if value.isdigit():
-        return int(value)
-
-    username = value.lstrip("@").lower()
-    if not username:
-        return None
-
-    resolved = await get_user_id_by_username(username)
-    if resolved:
-        return int(resolved)
-
-    for uid in await get_approved_member_ids():
-        try:
-            chat = await message.bot.get_chat(uid)
-        except Exception:
-            continue
-        if (getattr(chat, "username", "") or "").lower() == username:
-            return int(uid)
-    return None
+    return await resolve_member_user_id(raw_user, message.bot)
 
 
 def _is_private_message(message: Message) -> bool:

@@ -59,6 +59,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec("send_events_list", "send_events_list", "Опубликовать список мероприятий.", "admin", CommandKind.ACTION),
     CommandSpec("member_reengage", "member_reengage", "Отчёт по молчащим участникам.", "admin", CommandKind.HELP),
     CommandSpec("sync_members", "sync_members", "Синхронизировать локальный список участников.", "admin", CommandKind.HELP),
+    CommandSpec("reset_user_limit", "reset_user_limit", "Сбросить дневной лимит команд участника. Пример: <code>/reset_user_limit @ivan</code>", "admin", CommandKind.HELP, "/reset_user_limit &lt;user_id|@username&gt;"),
     CommandSpec("random_pairs", "random_pairs", "Сформировать и опубликовать пары 1:1.", "admin", CommandKind.ACTION),
     CommandSpec("pending_intro", "pending_intro", "Проверить статус рассказов о себе.", "admin", CommandKind.HELP),
     CommandSpec("random_optin_count", "random_optin_count", "Количество участников, согласных на 1:1.", "admin", CommandKind.HELP),

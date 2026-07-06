@@ -195,6 +195,7 @@ class HelpTextHtmlTests(unittest.TestCase):
                 "admin_report",
                 "send_events_list",
                 "random_pairs",
+                "reset_user_limit",
             }
             self.assertTrue(in_menu, msg=f"/{spec.command} missing from admin menu section")
 

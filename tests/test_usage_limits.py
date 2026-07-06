@@ -1,7 +1,8 @@
 import os
 import unittest
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytz
 
@@ -10,6 +11,7 @@ os.environ.setdefault("TIMEZONE", "Europe/Moscow")
 
 from bot.db.usage import usage_date_key  # noqa: E402
 from bot.middleware.command_access import CommandAccessMiddleware  # noqa: E402
+from bot.utils.helpers import resolve_member_user_id  # noqa: E402
 
 
 class UsageDateKeyTests(unittest.TestCase):
@@ -19,18 +21,31 @@ class UsageDateKeyTests(unittest.TestCase):
         self.assertEqual(usage_date_key(moment), "2026-07-06")
 
     def test_usage_date_key_converts_from_utc(self):
-        tz = pytz.timezone("Europe/Moscow")
         # 2026-07-05 22:00 UTC = 2026-07-06 01:00 MSK
         moment = datetime(2026, 7, 5, 22, 0, tzinfo=pytz.UTC)
         self.assertEqual(usage_date_key(moment), "2026-07-06")
 
 
+class ResolveMemberUserIdTests(unittest.IsolatedAsyncioTestCase):
+    async def test_resolve_numeric_id(self):
+        bot = MagicMock()
+        self.assertEqual(await resolve_member_user_id("12345", bot), 12345)
+
+    async def test_resolve_username_from_database(self):
+        bot = MagicMock()
+        with patch(
+            "bot.database.get_user_id_by_username",
+            new=AsyncMock(return_value=777),
+        ):
+            self.assertEqual(await resolve_member_user_id("@ivan", bot), 777)
+
+
 class _FakeCallback:
     def __init__(self, user_id: int, data: str):
-        self.from_user = type("U", (), {"id": user_id})()
+        self.from_user = SimpleNamespace(id=user_id)
         self.data = data
         self.answer = AsyncMock()
-        self.message = type("M", (), {"chat": type("C", (), {"type": "private"})()})()
+        self.message = SimpleNamespace(chat=SimpleNamespace(type="private"))
 
 
 class _FakeState:

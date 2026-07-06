@@ -24,7 +24,8 @@ from bot.keyboards import (
 )
 from .shared import CreateEvent, event_step_prompt, parse_datetime, build_event_payload
 from .carpool import advance_after_responsible, _prompt_responsible_step
-from bot.database import get_approved_member_ids, get_user_id_by_username, is_member_approved
+from bot.database import is_member_approved
+from bot.utils.helpers import resolve_member_user_id
 from bot.utils.design import wizard_prompt, brand_voice
 from bot.utils.callbacks import finalize_callback
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
@@ -778,26 +779,6 @@ async def process_limit(message: Message, state: FSMContext):
     await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.carpool.state, CARPOOL_HELP_TEXT), reply_markup=carpool_keyboard(back_callback="event_back"), parse_mode="HTML")
 
 
-async def _resolve_member_user_id(raw_user: str, message: Message) -> int | None:
-    value = (raw_user or "").strip()
-    if value.isdigit():
-        return int(value)
-    username = value.lstrip("@").lower()
-    if not username:
-        return None
-    resolved = await get_user_id_by_username(username)
-    if resolved:
-        return int(resolved)
-    for uid in await get_approved_member_ids():
-        try:
-            chat = await message.bot.get_chat(uid)
-        except Exception:
-            continue
-        if (getattr(chat, "username", "") or "").lower() == username:
-            return int(uid)
-    return None
-
-
 @router.callback_query(CreateEvent.responsible, F.data == "event_resp_self")
 async def responsible_self(callback: CallbackQuery, state: FSMContext):
     await advance_after_responsible(
@@ -831,7 +812,7 @@ async def process_responsible_input(message: Message, state: FSMContext):
         await _prompt_responsible_step(message, state)
         return
 
-    responsible_id = await _resolve_member_user_id(message.text, message)
+    responsible_id = await resolve_member_user_id(message.text, message.bot)
     if not responsible_id:
         await answer_private_intermediate(
             message,

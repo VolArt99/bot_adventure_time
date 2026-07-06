@@ -127,3 +127,32 @@ def parse_int_arg(raw: str) -> int | None:
     if not value.isdigit():
         return None
     return int(value)
+
+
+async def resolve_member_user_id(raw_user: str, bot: Bot) -> int | None:
+    """Разрешает числовой user_id или @username в Telegram user_id.
+
+    Сначала проверяет число, затем БД, затем username у одобренных участников через API.
+    """
+    value = (raw_user or "").strip()
+    if value.isdigit():
+        return int(value)
+
+    username = value.lstrip("@").lower()
+    if not username:
+        return None
+
+    from bot.database import get_approved_member_ids, get_user_id_by_username
+
+    resolved = await get_user_id_by_username(username)
+    if resolved:
+        return int(resolved)
+
+    for uid in await get_approved_member_ids():
+        try:
+            chat = await bot.get_chat(uid)
+        except Exception:
+            continue
+        if (getattr(chat, "username", "") or "").lower() == username:
+            return int(uid)
+    return None
