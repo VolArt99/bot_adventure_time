@@ -26,13 +26,18 @@ def event_actions(
     carpool_enabled: bool = False,
     *,
     participation_status: str | None = None,
+    bot_start_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     """CTA-кнопки карточки мероприятия.
 
     ``participation_status``: ``going``, ``waitlist`` или ``None`` — для персонализации в ЛС.
     В групповой карточке оставляйте ``None`` (одна клавиатура на всех).
+    ``bot_start_url``: ссылка t.me/... для кнопки «Запустить бота» (только в группе).
     """
     rows: list[list[InlineKeyboardButton]] = []
+
+    if participation_status is None and bot_start_url:
+        rows.append([InlineKeyboardButton(text="🤖 Запустить бота", url=bot_start_url)])
 
     if participation_status == "going":
         rows.append([InlineKeyboardButton(text="❌ Снять запись", callback_data=f"decline_{event_id}")])
@@ -99,7 +104,14 @@ def event_private_keyboard(
     can_manage: bool,
 ) -> InlineKeyboardMarkup:
     """Объединяет участие и управление для просмотра в ЛС."""
-    rows = list(event_actions(event_id, carpool_enabled, participation_status=participation_status).inline_keyboard)
+    rows = list(
+        event_actions(
+            event_id,
+            carpool_enabled,
+            participation_status=participation_status,
+            bot_start_url=None,
+        ).inline_keyboard
+    )
     if can_manage:
         rows.extend(event_manage_keyboard(event_id).inline_keyboard)
     return InlineKeyboardMarkup(inline_keyboard=rows)

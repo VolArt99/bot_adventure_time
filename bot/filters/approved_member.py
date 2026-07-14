@@ -19,7 +19,12 @@ def approved_member_callback_only(handler: Callable[..., Awaitable[Any]]):
     async def wrapper(callback: CallbackQuery, *args, **kwargs):
         user = callback.from_user
         if not user or not await is_member_approved(user.id):
-            await finalize_callback(callback, "Только актуальные участники группы", show_alert=True)
+            await finalize_callback(
+                callback,
+                "Чтобы записываться на мероприятия, напишите боту /start в личные сообщения "
+                "и дождитесь одобрения заявки.",
+                show_alert=True,
+            )
             return
         return await handler(callback, *args, **kwargs)
 

@@ -238,7 +238,7 @@ class ParticipationTransitionsTests(unittest.IsolatedAsyncioTestCase):
         rate_limit_call = safe_answer.await_args_list[-1]
         self.assertIn("Слишком частые", rate_limit_call.args[1])
         participation._participation_callback_hits.clear()
-            
+
     async def test_waitlist_denied_if_already_in_main_list(self):
         callback = _FakeCallback(user_id=11, data="waitlist_100")
 

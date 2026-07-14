@@ -29,7 +29,12 @@ class SchedulerConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["hour"], 14)
 
     async def test_reminder_is_sent_in_html(self):
-        bot = SimpleNamespace(send_message=AsyncMock())
+        bot = SimpleNamespace(
+            send_message=AsyncMock(
+                return_value=SimpleNamespace(message_id=999),
+            ),
+            delete_message=AsyncMock(),
+        )
 
         with (
             patch("bot.utils.scheduler.get_event", new=AsyncMock(return_value={
@@ -37,15 +42,21 @@ class SchedulerConfigTests(unittest.IsolatedAsyncioTestCase):
                 "status": "active",
                 "title": "Событие",
                 "date_time": "2026-06-01T10:00:00+00:00",
+                "location": "Москва",
                 "thread_id": 10,
+                "message_id": 55,
             })),
             patch("bot.utils.scheduler.get_participants", new=AsyncMock(return_value=[123])),
+            patch("bot.utils.notifications.send_private_dm", new=AsyncMock(return_value=501)),
         ):
             await scheduler.send_reminder(100, 3600, bot)
 
         parse_modes = [c.kwargs.get("parse_mode") for c in bot.send_message.await_args_list]
         self.assertTrue(parse_modes)
         self.assertTrue(all(mode == "HTML" for mode in parse_modes))
+        group_text = bot.send_message.await_args_list[0].kwargs.get("text", "")
+        self.assertIn("1 ч", group_text)
+        self.assertIn("Открыть карточку", group_text)
 
 
 if __name__ == "__main__":

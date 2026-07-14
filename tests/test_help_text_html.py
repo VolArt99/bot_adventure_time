@@ -99,6 +99,25 @@ class HelpTextHtmlTests(unittest.TestCase):
         self.assertEqual(rows[2], ["🚗 Водитель", "👥 Попутка"])
         self.assertNotIn(["🗑 Удалить"], rows)
 
+    def test_event_card_keyboard_shows_start_bot_link_in_group(self):
+        keyboard = event_actions(
+            42,
+            carpool_enabled=False,
+            bot_start_url="https://t.me/testbot?start=onboard",
+        )
+        rows = keyboard.inline_keyboard
+        self.assertEqual(rows[0][0].text, "🤖 Запустить бота")
+        self.assertEqual(rows[0][0].url, "https://t.me/testbot?start=onboard")
+
+    def test_event_card_keyboard_hides_start_bot_in_private_view(self):
+        keyboard = event_actions(
+            42,
+            participation_status="going",
+            bot_start_url="https://t.me/testbot?start=onboard",
+        )
+        labels = [button.text for row in keyboard.inline_keyboard for button in row]
+        self.assertNotIn("🤖 Запустить бота", labels)
+
     def test_event_card_keyboard_personalized_for_going(self):
         keyboard = event_actions(42, participation_status="going")
         rows = [[button.text for button in row] for row in keyboard.inline_keyboard]

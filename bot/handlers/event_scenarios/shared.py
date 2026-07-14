@@ -181,11 +181,18 @@ async def finalize_event_creation(
     )
 
     try:
+        from bot.utils.notifications import get_bot_start_url
+
+        bot_start_url = await get_bot_start_url(bot)
         sent_msg = await bot.send_message(
             chat_id=GROUP_ID,
             text=event_text,
             message_thread_id=data.get("thread_id"),
-            reply_markup=event_actions(event_id, data.get("carpool_enabled", False)),
+            reply_markup=event_actions(
+                event_id,
+                data.get("carpool_enabled", False),
+                bot_start_url=bot_start_url,
+            ),
             parse_mode="HTML",
             disable_web_page_preview=True,
         )

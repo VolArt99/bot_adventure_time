@@ -9,6 +9,9 @@ from bot.texts import (  # noqa: E402
     event_status_badges,
     format_duration,
     format_event_period,
+    format_group_reminder_text,
+    format_reminder_text,
+    format_time_until,
     category_to_hashtags,
     category_to_branded_hashtags,
     category_to_visual_badges,
@@ -33,6 +36,36 @@ class TextFormattersTest(unittest.TestCase):
 
     def test_format_duration_empty(self):
         self.assertEqual(format_duration(None), "не указана")
+
+    def test_format_time_until_hours(self):
+        self.assertEqual(format_time_until(180), "3 ч")
+        self.assertEqual(format_time_until(90), "1 ч 30 мин")
+        self.assertEqual(format_time_until(45), "45 мин")
+
+    def test_format_reminder_text_includes_card_link(self):
+        event = {
+            "title": "Фестиваль",
+            "date_time": "2026-06-01T10:00:00+03:00",
+            "location": "Парк",
+        }
+        text = format_reminder_text(
+            event,
+            180,
+            event_link="https://t.me/c/123/10/55",
+        )
+        self.assertIn("3 ч", text)
+        self.assertIn("Открыть карточку мероприятия", text)
+        self.assertIn("https://t.me/c/123/10/55", text)
+
+    def test_format_group_reminder_text(self):
+        text = format_group_reminder_text(
+            "Фестиваль",
+            180,
+            event_link="https://t.me/c/123/10/55",
+        )
+        self.assertIn("Фестиваль", text)
+        self.assertIn("3 ч", text)
+        self.assertIn("Открыть карточку", text)
 
     def test_category_to_hashtags(self):
         self.assertEqual(category_to_hashtags("спорт, поездки"), "#спорт #поездки")

@@ -162,6 +162,8 @@ async def update_event_message(
 
     mentions = await get_user_mentions(all_users, bot)
 
+    from bot.utils.notifications import get_bot_start_url
+
     text = await format_event_message(
         event,
         going,
@@ -172,12 +174,17 @@ async def update_event_message(
         responsible_mention=mentions.get(responsible_id),
         show_cta=False,
     )
+    bot_start_url = await get_bot_start_url(bot)
     try:
         await bot.edit_message_text(
             chat_id=GROUP_ID,
             message_id=message_id,
             text=text,
-            reply_markup=event_actions(event_id, event["carpool_enabled"]),
+            reply_markup=event_actions(
+                event_id,
+                event["carpool_enabled"],
+                bot_start_url=bot_start_url,
+            ),
             parse_mode="HTML",
             disable_web_page_preview=True,
         )

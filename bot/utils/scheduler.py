@@ -5,7 +5,8 @@ from apscheduler.jobstores.memory import MemoryJobStore
 from datetime import datetime, timedelta
 import pytz
 import logging
-from html import escape
+
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from bot.config import (
     TIMEZONE,
@@ -28,6 +29,9 @@ logger = logging.getLogger(__name__)
 TZ = pytz.timezone(TIMEZONE)
 
 scheduler = AsyncIOScheduler(jobstores={"default": MemoryJobStore()}, timezone=TZ)
+
+# Последние отправленные напоминания по мероприятию (для удаления при следующем)
+_reminder_message_ids: dict[int, dict[str, int | dict[int, int]]] = {}
 
 
 def start_scheduler():
@@ -126,6 +130,28 @@ async def schedule_reminders_for_event(event_id: int, bot):
     await schedule_reminders_for_event_data(event, bot)
 
 
+async def _delete_previous_reminders(bot, event_id: int) -> None:
+    """Удаляет предыдущие напоминания по мероприятию, если они ещё доступны."""
+    stored = _reminder_message_ids.pop(event_id, None)
+    if not stored:
+        return
+
+    group_message_id = stored.get("group")
+    if isinstance(group_message_id, int):
+        try:
+            await bot.delete_message(GROUP_ID, group_message_id)
+        except TelegramBadRequest:
+            pass
+
+    dm_messages = stored.get("dm")
+    if isinstance(dm_messages, dict):
+        for user_id, message_id in dm_messages.items():
+            try:
+                await bot.delete_message(int(user_id), int(message_id))
+            except (TelegramBadRequest, TelegramForbiddenError):
+                pass
+
+
 async def send_reminder(event_id: int, interval: int, bot):
     """Отправляет напоминание участникам."""
     try:
@@ -139,22 +165,51 @@ async def send_reminder(event_id: int, interval: int, bot):
 
         minutes_until = interval // 60
 
-        from bot.texts import format_reminder_text
-
-        text = format_reminder_text(event, minutes_until)
-
+        from bot.texts import format_group_reminder_text, format_reminder_text
+        from bot.utils.helpers import build_event_message_link
         from bot.utils.notifications import send_private_dm
 
-        for uid in participants:
-            await send_private_dm(bot, uid, text)
+        event_link = build_event_message_link(
+            GROUP_ID,
+            event.get("message_id"),
+            event.get("thread_id"),
+        )
+        text = format_reminder_text(event, minutes_until, event_link=event_link)
 
+        await _delete_previous_reminders(bot, event_id)
+
+        dm_message_ids: dict[int, int] = {}
+        for uid in participants:
+            message_id = await send_private_dm(
+                bot,
+                uid,
+                text,
+                return_message_id=True,
+            )
+            if isinstance(message_id, int):
+                dm_message_ids[uid] = message_id
+
+        group_message_id: int | None = None
         if event.get("thread_id"):
-            await bot.send_message(
+            group_text = format_group_reminder_text(
+                event["title"],
+                minutes_until,
+                event_link=event_link,
+            )
+            group_message = await bot.send_message(
                 chat_id=GROUP_ID,
                 message_thread_id=event["thread_id"],
-                text=f"🔔 Напоминание: <b>{escape(event['title'])}</b> начнётся через {minutes_until} мин",
+                text=group_text,
                 parse_mode="HTML",
+                disable_web_page_preview=True,
             )
+            group_message_id = group_message.message_id
+
+        if dm_message_ids or group_message_id is not None:
+            _reminder_message_ids[event_id] = {
+                "dm": dm_message_ids,
+                "group": group_message_id,
+            }
 
         logger.info(f"Напоминание отправлено для мероприятия {event_id}")
     except Exception as e:

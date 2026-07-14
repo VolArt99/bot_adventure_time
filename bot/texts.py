@@ -376,19 +376,57 @@ def format_digest_text(
     return "\n".join(lines)
 
 
-def format_reminder_text(event: Dict, minutes_until: int) -> str:
+def format_time_until(minutes: int) -> str:
+    """Форматирует «через N мин/ч» для напоминаний."""
+    if minutes >= 60:
+        hours = minutes // 60
+        mins = minutes % 60
+        if mins:
+            return f"{hours} ч {mins} мин"
+        return f"{hours} ч"
+    return f"{minutes} мин"
+
+
+def format_reminder_text(
+    event: Dict,
+    minutes_until: int,
+    *,
+    event_link: str | None = None,
+) -> str:
     dt = datetime.fromisoformat(event["date_time"]).astimezone(TZ)
     date_str = dt.strftime("%d.%m.%Y %H:%M")
     title = escape(event["title"])
     location = escape(event.get("location") or "не указано")
+    time_until = format_time_until(minutes_until)
 
-    return (
-        f"🔔 <b>Напоминание о мероприятии</b>\n\n"
-        f"📌 {title}\n"
-        f"📅 {date_str}\n"
-        f"📍 {location}\n"
-        f"⏰ Начинается через {minutes_until} мин"
-    )
+    lines = [
+        f"🔔 <b>Напоминание о мероприятии</b>",
+        "",
+        f"📌 {title}",
+        f"📅 {date_str}",
+        f"📍 {location}",
+        f"⏰ Начинается через {time_until}",
+    ]
+    if event_link:
+        safe_link = escape(event_link, quote=True)
+        lines.extend(["", f'🔗 <a href="{safe_link}">Открыть карточку мероприятия</a>'])
+    return "\n".join(lines)
+
+
+def format_group_reminder_text(
+    title: str,
+    minutes_until: int,
+    *,
+    event_link: str | None = None,
+) -> str:
+    """Короткое напоминание для темы группы."""
+    safe_title = escape(title)
+    time_until = format_time_until(minutes_until)
+    text = f"🔔 Напоминание: <b>{safe_title}</b> начнётся через {time_until}"
+    if event_link:
+        safe_link = escape(event_link, quote=True)
+        text += f'\n🔗 <a href="{safe_link}">Открыть карточку</a>'
+    return text
 
 
 def format_attendance_prompt_text(event: Dict, hours_before: int) -> str:
