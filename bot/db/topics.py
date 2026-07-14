@@ -106,6 +106,28 @@ async def get_topic_name_by_thread_id(message_thread_id: int | None) -> Optional
     return topic.get("name")
 
 
+async def resolve_thread_id_by_name_fragment(fragment: str) -> int | None:
+    """Ищет message_thread_id по фрагменту названия темы (БД → topics_config)."""
+    needle = (fragment or "").strip().lower()
+    if not needle:
+        return None
+
+    for topic in await get_all_topics():
+        name = (topic.get("name") or "").lower()
+        if needle in name:
+            return int(topic["message_thread_id"])
+
+    try:
+        from bot.topics_config import TOPICS_MAPPING
+
+        for thread_id, name in TOPICS_MAPPING.items():
+            if needle in str(name).lower():
+                return int(thread_id)
+    except Exception:
+        pass
+    return None
+
+
 async def sync_topics_from_config() -> int:
     try:
         from bot.topics_config import TOPICS_MAPPING

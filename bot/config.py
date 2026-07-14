@@ -84,6 +84,13 @@ if not 1 <= DIGEST_DAY_OF_WEEK <= 7:
 if not 0 <= DIGEST_HOUR <= 23:
     raise ValueError("DIGEST_HOUR должен быть в диапазоне 0..23.")
 
+# Дни рождения: ежедневный пост в тему «Общение и не только»
+BIRTHDAY_HOUR = int(os.getenv("BIRTHDAY_HOUR", "11"))
+BIRTHDAY_THREAD_ID = int(os.getenv("BIRTHDAY_THREAD_ID")) if os.getenv("BIRTHDAY_THREAD_ID") else None
+BIRTHDAY_TOPIC_NAME = os.getenv("BIRTHDAY_TOPIC_NAME", "Общение и не только")
+if not 0 <= BIRTHDAY_HOUR <= 23:
+    raise ValueError("BIRTHDAY_HOUR должен быть в диапазоне 0..23.")
+
 # Тихие часы для ЛС (не слать ночью); по умолчанию 23:00–08:00 в TIMEZONE
 QUIET_HOURS_START = int(os.getenv("QUIET_HOURS_START", "23"))
 QUIET_HOURS_END = int(os.getenv("QUIET_HOURS_END", "8"))

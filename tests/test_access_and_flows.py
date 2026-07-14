@@ -211,7 +211,9 @@ class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
 class ParticipationTransitionsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_join_callback_rate_limit_skips_second_db_update(self):
-        participation._participation_callback_hits.clear()
+        from bot.utils import callback_rate_limit
+
+        callback_rate_limit._hits.clear()
         callback = _FakeCallback(user_id=11, data="join_100")
         event = {
             "id": 100,
@@ -226,18 +228,19 @@ class ParticipationTransitionsTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.handlers.participation.get_event", new=AsyncMock(return_value=event)) as get_event,
             patch("bot.handlers.participation.get_main_participants", new=AsyncMock(return_value=[])),
             patch("bot.handlers.participation.get_participants", new=AsyncMock(return_value=[])),
-            patch("bot.handlers.participation.add_participant", new=AsyncMock()) as add_participant,
+            patch("bot.handlers.participation.add_participant", new=AsyncMock(return_value=True)) as add_participant,
             patch("bot.handlers.participation.update_event_message", new=AsyncMock()),
-            patch("bot.handlers.participation.safe_callback_answer", new=AsyncMock()) as safe_answer,
+            patch("bot.handlers.participation.safe_callback_answer", new=AsyncMock()),
+            patch("bot.utils.callback_rate_limit.safe_callback_answer", new=AsyncMock()) as rate_answer,
         ):
             await participation.join_event(callback)
             await participation.join_event(callback)
 
         self.assertEqual(get_event.await_count, 1)
         add_participant.assert_awaited_once_with(100, 11, "going")
-        rate_limit_call = safe_answer.await_args_list[-1]
-        self.assertIn("Слишком частые", rate_limit_call.args[1])
-        participation._participation_callback_hits.clear()
+        rate_answer.assert_awaited()
+        self.assertIn("Слишком частые", rate_answer.await_args.args[1])
+        callback_rate_limit._hits.clear()
 
     async def test_waitlist_denied_if_already_in_main_list(self):
         callback = _FakeCallback(user_id=11, data="waitlist_100")

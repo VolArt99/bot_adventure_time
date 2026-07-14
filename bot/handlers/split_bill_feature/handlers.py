@@ -16,6 +16,7 @@ from bot.utils.ui import answer_private_intermediate
 from bot.utils.helpers import parse_int_arg, resolve_member_user_id
 from bot.utils.callbacks import finalize_callback
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
+from bot.utils.callback_rate_limit import answer_if_callback_rate_limited
 from bot.filters.approved_member import approved_member_callback_only
 
 from .services import (
@@ -355,6 +356,10 @@ def split_bill_source_event_keyboard(events: list[dict]) -> InlineKeyboardMarkup
 @approved_member_callback_only
 async def split_bill_join_callback(callback: CallbackQuery):
     split_id = int(callback.data.rsplit("_", 1)[-1])
+    if await answer_if_callback_rate_limited(
+        callback, scope="split_bill", resource_id=split_id, action="join"
+    ):
+        return
     if not await is_member_approved(callback.from_user.id):
         await finalize_callback(callback, "Только участники группы", show_alert=True)
         return
@@ -373,6 +378,10 @@ async def split_bill_join_callback(callback: CallbackQuery):
 @approved_member_callback_only
 async def split_bill_leave_callback(callback: CallbackQuery):
     split_id = int(callback.data.rsplit("_", 1)[-1])
+    if await answer_if_callback_rate_limited(
+        callback, scope="split_bill", resource_id=split_id, action="leave"
+    ):
+        return
     bill = await get_split_bill(split_id)
     if not bill or bill.get("status") != "open":
         await finalize_callback(callback, "Чек недоступен", show_alert=True)
@@ -391,6 +400,10 @@ async def split_bill_leave_callback(callback: CallbackQuery):
 @approved_member_callback_only
 async def split_bill_paid_callback(callback: CallbackQuery):
     split_id = int(callback.data.rsplit("_", 1)[-1])
+    if await answer_if_callback_rate_limited(
+        callback, scope="split_bill", resource_id=split_id, action="paid"
+    ):
+        return
     bill = await get_split_bill(split_id)
     if not bill or bill.get("status") != "open":
         await finalize_callback(callback, "Чек недоступен", show_alert=True)
@@ -411,6 +424,10 @@ async def split_bill_paid_callback(callback: CallbackQuery):
 @approved_member_callback_only
 async def split_bill_status_callback(callback: CallbackQuery):
     split_id = int(callback.data.rsplit("_", 1)[-1])
+    if await answer_if_callback_rate_limited(
+        callback, scope="split_bill", resource_id=split_id, action="status"
+    ):
+        return
     await refresh_split_message(callback, split_id)
     await finalize_callback(callback, "Обновлено")
 

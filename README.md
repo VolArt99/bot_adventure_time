@@ -94,60 +94,63 @@ Telegram-бот для приватного сообщества: меропри
     ├── healthcheck.py               # CLI для Docker healthcheck
     ├── db/                          # PostgreSQL-слой (модули по доменам)
     │   ├── schema.py                # init_db, индексы, миграции колонок
-    │   ├── events.py
-    │   ├── participants.py
-    │   ├── attendance.py
-    │   ├── members.py
-    │   ├── split_bill.py
-    │   ├── subscriptions.py
-    │   ├── usage.py
-    │   └── …
-    ├── db_pool.py
-    ├── fsm_storage_pg.py
-    ├── middleware/
-    │   ├── __init__.py
-    │   ├── command_access.py
-    │   ├── topic_discoverer.py
-    │   └── latency_metrics.py
-    ├── filters/
-    │   ├── __init__.py
-    │   ├── admin.py
-    │   ├── command_access.py
-    │   └── registered_user.py
-    ├── handlers/
-    │   ├── __init__.py
-    │   ├── common_feature/            # структурный модуль common: handlers/views/services
-    │   ├── events.py
-    │   ├── participation.py
-    │   ├── my_events.py
-    │   ├── digest.py
-    │   ├── subscriptions.py
-    │   ├── roadmap.py
-    │   ├── split_bill_feature/        # структурный модуль split_bill: handlers/views/services
-    │   ├── admin.py
-    │   └── event_scenarios/
-    │       ├── __init__.py
-    │       ├── shared.py
-    │       ├── create.py
-    │       ├── edit.py
-    │       ├── cancel.py
-    │       ├── category.py
-    │       └── carpool.py
-    ├── commands.py                # единый реестр команд
-    └── utils/
-        ├── __init__.py
-        ├── design.py              # BRAND_VOICE, SEASON_COPY, визуальные primitives
-        ├── scheduler.py
-        ├── notifications.py         # ЛС с тихими часами
-        ├── category_notify.py         # push по подпискам на категории
-        ├── health.py                # heartbeat для healthcheck
-        ├── monitoring.py              # периодические метрики + алерты owner
-        ├── weather.py
-        ├── metrics.py
-        ├── topics.py
-        ├── event_links.py
-        ├── helpers.py
-        └── pairing.py
+│   ├── events.py
+│   ├── participants.py
+│   ├── attendance.py
+│   ├── members.py
+│   ├── split_bill.py
+│   ├── subscriptions.py
+│   ├── usage.py
+│   ├── ids.py                 # sequences для event/participant/split IDs
+│   ├── pending_notifications.py
+│   └── maintenance.py         # cleanup FSM
+├── db_pool.py
+├── fsm_storage_pg.py
+├── middleware/
+│   ├── __init__.py
+│   ├── command_access.py
+│   ├── topic_discoverer.py
+│   └── latency_metrics.py
+├── filters/
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── command_access.py
+│   └── registered_user.py
+├── handlers/
+│   ├── __init__.py
+│   ├── common_feature/            # структурный модуль common: handlers/views/services
+│   ├── events.py
+│   ├── participation.py
+│   ├── my_events.py
+│   ├── digest.py
+│   ├── subscriptions.py
+│   ├── roadmap.py
+│   ├── split_bill_feature/        # структурный модуль split_bill: handlers/views/services
+│   ├── admin.py
+│   └── event_scenarios/
+│       ├── __init__.py
+│       ├── shared.py
+│       ├── create.py
+│       ├── edit.py
+│       ├── cancel.py
+│       ├── category.py
+│       └── carpool.py
+├── commands.py                # единый реестр команд
+└── utils/
+    ├── __init__.py
+    ├── design.py              # BRAND_VOICE, SEASON_COPY, визуальные primitives
+    ├── scheduler.py
+    ├── notifications.py         # ЛС + очередь тихих часов
+    ├── callback_rate_limit.py
+    ├── category_notify.py         # push по подпискам на категории
+    ├── health.py                # heartbeat для healthcheck
+    ├── monitoring.py              # периодические метрики + алерты owner
+    ├── weather.py
+    ├── metrics.py
+    ├── topics.py
+    ├── event_links.py
+    ├── helpers.py
+    └── pairing.py
 ```
 
 > Полный список тестов: `tests/test_*.py` (тексты, доступы, FSM PG, pool, callbacks и др.).
@@ -270,6 +273,9 @@ Telegram-бот для приватного сообщества: меропри
 ### Активность
 - `/my_stats` — личная статистика.
 - `/top` — топ участников.
+- `/birthday` — показать сохранённый день рождения.
+- `<code>/set_birthday &lt;ДД.ММ&gt;</code>` — указать день рождения (год не сохраняется).
+- `/clear_birthday` — удалить дату из профиля.
 
 ### Random 1:1
 - `/random_optin` — включиться в random-пулы.
@@ -297,10 +303,13 @@ Telegram-бот для приватного сообщества: меропри
 - Кнопки участия в **групповой** карточке: `✅ В путь!` / `⏳ В резерве` / `❌ В другой раз`; в **ЛС** (через «Мои встречи») — персонализированные (`❌ Снять запись`, `❌ Снять резерв`).
 - Удаление мероприятия — только в ЛС организатора, с подтверждением; на публичной карточке кнопки «🗑 Удалить» нет.
 - За 24 ч до события (настраивается `ATTENDANCE_CONFIRM_HOURS`) участникам «going» приходит ЛС с подтверждением «всё ещё иду».
-- При публикации события подписчики категории получают push в ЛС (с учётом тихих часов `QUIET_HOURS_*`).
+- Организатор видит сводку явки в «Мои встречи» и по кнопке «✅ Явка» (confirmed / pending / declined).
+- Если за 24 ч до старта в списке всё ещё 0 участников — организатору уходит ЛС-предупреждение.
+- 1-го числа месяца owner получает автоматический monthly re-engage отчёт (то же, что `/member_reengage`).
+- При публикации события подписчики категории получают push в ЛС (с учётом тихих часов `QUIET_HOURS_*`); ночные ЛС ставятся в очередь и уходят после тихих часов.
 - Карточка мероприятия: заголовок → статус → шкала мест `🎟 ████░░░░ 4/10`; компактные ссылки; без текстового CTA внизу; `🆔 ID` только в ЛС организатора.
 - Дайджест: «Афиша приключений» + подсказка для iPhone в конце; пустой период — «Тишина в Ланде Ооо…».
-- Split-bill: шкала сбора; закрытие чека — с подтверждением; «🔔 Напомнить должникам» — в ЛС организатора.
+- Split-bill: шкала сбора + «осталось собрать X ₽» в шапке; закрытие чека — с подтверждением; «🔔 Напомнить должникам» — в ЛС организатора.
 - Онбординг: краткие правила + «📜 Полные правила»; после `/start` — чеклист «что дальше»; кнопка `🚀 Старт`.
 - Мастер событий: быстрые кнопки даты («Сегодня вечером», «Завтра», «В субботу»); превью с `🗺️ Публикуем!`.
 - Подписки: автосохранение при каждом выборе. «Мои встречи»: кнопки `📅 05.07 · Название`.
@@ -348,6 +357,7 @@ Telegram-бот для приватного сообщества: меропри
 - `OUTSIDER_ALLOWED_COMMANDS` — по умолчанию `start,donate`
 - `DB_POOL_MIN_SIZE`, `DB_POOL_MAX_SIZE` — пул PostgreSQL (по умолчанию 1/5, оптимально для 2 ГиБ RAM)
 - `DIGEST_DAY_OF_WEEK`, `DIGEST_HOUR`, `DIGEST_THREAD_ID` — расписание и тема еженедельной афиши (`thread_id` из `/list_topics`)
+- `BIRTHDAY_HOUR`, `BIRTHDAY_THREAD_ID`, `BIRTHDAY_TOPIC_NAME` — ежедневные поздравления в теме «Общение и не только» (по умолчанию ищется по имени)
 - `MEMBER_DAILY_COMMAND_LIMIT` — лимит команд/callback в ЛС для участника (по умолчанию **40**; мастера не считаются)
 - `QUIET_HOURS_START`, `QUIET_HOURS_END` — тихие часы для ЛС-уведомлений (по умолчанию 23:00–08:00, `TIMEZONE`)
 - `ATTENDANCE_CONFIRM_HOURS` — за сколько часов до события спрашивать подтверждение участия (по умолчанию 24)
@@ -429,6 +439,15 @@ python -m compileall -q bot tests
 
 ## Что обновилось в последних изменениях
 
+- **Тихие часы (2026-07):** ЛС больше не теряются ночью — сообщения ставятся в `pending_notifications` и отправляются после окончания тихих часов (flush каждые 10 мин + сразу после `QUIET_HOURS_END`).
+- **Гонка записи:** `UNIQUE (event_id, user_id)` на `participants`; `INSERT … ON CONFLICT` + проверка лимита мест в одном SQL; `joined_at` заполняется при записи.
+- **ID событий/участников/split bill:** PostgreSQL sequences (`events_id_seq`, `participants_id_seq`, `split_bill_events_id_seq`) вместо `time.time()*1000`.
+- **Правила:** контакт админа берётся из `OWNER_CONTACT` / `OWNER_ID` (`get_group_rules_text()`), без хардкода `@Vol_Artem`.
+- **Явка:** сводка `get_attendance_summary` в карточке «Мои встречи» и кнопка «✅ Явка»; после confirm/decline показывается счётчик ✅/⏳/❌.
+- **Планировщик:** лог пропущенных jobs при рестарте; empty-alert организатору за 24ч если 0 участников; monthly re-engage отчёт owner 1-го числа; ежедневная очистка FSM/`pending_notifications`.
+- **Split bill:** в шапке карточки «Осталось собрать X ₽»; rate-limit на callback `sb_*`.
+- **Прочее:** общий `callback_rate_limit`; дедуп `build_event_text`/`update_event_message`; индексы attendance/FSM/pending.
+- **Дни рождения:** `/set_birthday`, `/birthday`, `/clear_birthday`; ежедневный пост в тему «Общение и не только» (`BIRTHDAY_TOPIC_NAME` / `BIRTHDAY_THREAD_ID`).
 - **Безопасность (2026-07):** разделение «в группе Telegram» vs «одобрен ботом»; HTML-escape в split bill и админ-ответах; защита `decline_*` от манипуляции резервом; IDOR-fix в `myevent_{id}`; `pg_hba.docker.conf`; `chmod 600` на бэкапы; `can_view_command_hint` для `menu_cmd_*`; безопасный парсинг callback.
 - **Слой БД:** монолитный `database_pg.py` разбит на пакет `bot/db/`; фасады `bot/database.py` и `bot/database_pg.py` сохранены для совместимости.
 - **Лимиты в PostgreSQL:** дневные лимиты команд/callback в ЛС (`user_command_usage_daily`), сутки по `TIMEZONE`; callback внутри мастеров не тратят лимит; дефолт участника 40/сутки; `/reset_user_limit`.

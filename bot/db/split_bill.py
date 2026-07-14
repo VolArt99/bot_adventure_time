@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from .ids import next_id
 from .participants import get_main_participants
 from ._core import _normalize_row, _run_execute, _run_query
 
@@ -21,19 +22,13 @@ async def create_split_bill(
     source_event_id: int | None = None,
 ) -> int:
     now = datetime.now(timezone.utc)
-    result = await _run_query(
-        """
-        SELECT COALESCE(MAX(id), 0) + 1 AS new_id FROM split_bill_events
-        """,
-    )
-    split_id = int(result[0].rows[0].new_id)
+    split_id = await next_id("split_bill_events_id_seq")
 
     await _run_query(
         """
         INSERT INTO split_bill_events
         (id, group_id, organizer_id, title, total_amount, transfer_target_type, transfer_target_value, transfer_bank, transfer_bank_custom, transfer_recipient_name, status, source_event_id, created_at)
         VALUES ($id, $group_id, $organizer_id, $title, $total_amount, $transfer_target_type, $transfer_target_value, $transfer_bank, $transfer_bank_custom, $transfer_recipient_name, $status, $source_event_id, $created_at)
-        ON CONFLICT (id) DO NOTHING
         """,
         parameters={
             "id": split_id,

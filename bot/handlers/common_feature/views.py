@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from html import escape
 
-from bot.texts import GROUP_RULES_SHORT_TEXT, GROUP_RULES_TEXT
+from bot.texts import GROUP_RULES_SHORT_TEXT, get_group_rules_text
 from bot.utils.design import (
     BRAND,
     brand_voice,
@@ -55,7 +55,7 @@ def build_group_rules_full_text() -> str:
     return (
         f"{step_badge(2, 3, 'Правила')}\n"
         f"{seasonal_card_divider()}\n"
-        f"{GROUP_RULES_TEXT}"
+        f"{get_group_rules_text()}"
     )
 
 
@@ -195,7 +195,8 @@ SECTION_TONES = {
         "focus": [
             "• включить или выключить random 1:1;",
             "• посмотреть личную статистику;",
-            "• открыть топ активности за 30 дней.",
+            "• открыть топ активности за 30 дней;",
+            "• указать день рождения для поздравления в группе.",
         ],
         "cta": "Найди попутчиков и новых друзей.",
     },
@@ -364,6 +365,9 @@ COMMAND_ACTIONS.update({
     "top": ("/top", "Показать топ активности за 30 дней."),
     "random_optin": ("/random_optin", "Включиться в random-встречи 1:1."),
     "random_optout": ("/random_optout", "Выключиться из random-встреч 1:1."),
+    "birthday": ("/birthday", "Показать сохранённый день рождения."),
+    "set_birthday": ("/set_birthday &lt;ДД.ММ&gt;", "Указать день рождения. Пример: <code>/set_birthday 15.07</code>"),
+    "clear_birthday": ("/clear_birthday", "Удалить день рождения из профиля."),
     "split_bill": ("/split_bill", "Запустить мастер разделения чека."),
     "split_bill_add": ("/split_bill_add &lt;id&gt; &lt;user_id|@username&gt;", "Добавить участника в чек вручную."),
     "split_bill_remove": ("/split_bill_remove &lt;id&gt; &lt;user_id|@username&gt;", "Удалить участника из чека вручную."),

@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import time
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, Message
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -22,6 +21,7 @@ from bot.utils.roles import is_admin_or_owner
 from bot.utils.design import brand_voice
 from bot.filters.approved_member import approved_member_callback_only
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
+from bot.utils.callback_rate_limit import answer_if_callback_rate_limited
 
 from bot.database import (
     get_event,
@@ -37,6 +37,7 @@ from bot.database import (
     cancel_event,
     toggle_ride_seeker,
     set_attendance_response,
+    get_attendance_summary,
 )
 
 
@@ -58,36 +59,6 @@ def resolve_participation_status(user_id: int, going: list[int], waitlist: list[
 
 
 PARTICIPATION_CALLBACK_RATE_LIMIT_SECONDS = 1.5
-PARTICIPATION_CALLBACK_RATE_LIMIT_CACHE_TTL_SECONDS = 60.0
-_participation_callback_hits: dict[tuple[int, int, str], float] = {}
-
-
-def _is_participation_callback_rate_limited(
-    user_id: int,
-    event_id: int,
-    action: str,
-    *,
-    now: float | None = None,
-) -> bool:
-    """Ограничивает частые клики по участию/резерву для одного события."""
-    current_time = time.monotonic() if now is None else now
-    if len(_participation_callback_hits) > 1000:
-        stale_before = current_time - PARTICIPATION_CALLBACK_RATE_LIMIT_CACHE_TTL_SECONDS
-        stale_keys = [
-            cached_key
-            for cached_key, cached_time in _participation_callback_hits.items()
-            if cached_time < stale_before
-        ]
-        for stale_key in stale_keys:
-            _participation_callback_hits.pop(stale_key, None)
-
-    key = (int(user_id), int(event_id), action)
-    previous_time = _participation_callback_hits.get(key)
-    _participation_callback_hits[key] = current_time
-    return bool(
-        previous_time is not None
-        and current_time - previous_time < PARTICIPATION_CALLBACK_RATE_LIMIT_SECONDS
-    )
 
 
 async def _answer_if_participation_rate_limited(
@@ -96,16 +67,21 @@ async def _answer_if_participation_rate_limited(
     event_id: int,
     action: str,
 ) -> bool:
-    if not _is_participation_callback_rate_limited(callback.from_user.id, event_id, action):
-        return False
-    await safe_callback_answer(callback, "⏱ Слишком частые нажатия. Подождите секунду.")
-    return True
+    return await answer_if_callback_rate_limited(
+        callback,
+        scope="participation",
+        resource_id=event_id,
+        action=action,
+        cooldown_seconds=PARTICIPATION_CALLBACK_RATE_LIMIT_SECONDS,
+    )
 
 
-async def build_event_text(event_id: int, bot: Bot) -> str:
+async def _collect_event_card_context(event_id: int, bot: Bot) -> tuple[dict | None, str, dict]:
+    """Общий сбор данных для карточки мероприятия."""
     event = await get_event(event_id)
     if not event:
-        return "❌ Мероприятие не найдено."
+        return None, "❌ Мероприятие не найдено.", {}
+
     from bot.database import get_topic_name_by_thread_id
 
     main_ids, waitlist, topic_name, drivers, ride_seekers = await asyncio.gather(
@@ -123,47 +99,6 @@ async def build_event_text(event_id: int, bot: Bot) -> str:
         all_users.add(driver["user_id"])
         all_users.update(driver["passengers"])
     mentions = await get_user_mentions(all_users, bot)
-    return await format_event_message(
-        event,
-        going,
-        waitlist,
-        mentions,
-        topic_name=topic_name,
-        organizer_mention=mentions.get(event["creator_id"]),
-        responsible_mention=mentions.get(responsible_id),
-    )
-
-    
-async def update_event_message(
-    bot: Bot, event_id: int, thread_id: int, message_id: int
-):
-    event = await get_event(event_id)
-    if not event:
-        return
-
-    from bot.database import get_topic_name_by_thread_id
-    main_ids, waitlist, drivers, topic_name, ride_seekers = await asyncio.gather(
-        get_main_participants(event_id),
-        get_participants(event_id, "waitlist"),
-        get_drivers_with_passengers(event_id),
-        get_topic_name_by_thread_id(event.get("thread_id")),
-        get_ride_seekers(event_id),
-    )
-    seeker_set = set(ride_seekers)
-    going = [uid for uid in main_ids if uid not in seeker_set]
-
-    responsible_id = event.get("responsible_id") or event["creator_id"]
-    all_users = set(going + waitlist + ride_seekers + [event["creator_id"], responsible_id])
-
-    for driver in drivers:
-        all_users.add(driver["user_id"])
-        for p in driver["passengers"]:
-            all_users.add(p)
-
-    mentions = await get_user_mentions(all_users, bot)
-
-    from bot.utils.notifications import get_bot_start_url
-
     text = await format_event_message(
         event,
         going,
@@ -174,6 +109,30 @@ async def update_event_message(
         responsible_mention=mentions.get(responsible_id),
         show_cta=False,
     )
+    return event, text, {
+        "going": going,
+        "waitlist": waitlist,
+        "drivers": drivers,
+        "ride_seekers": ride_seekers,
+        "topic_name": topic_name,
+        "mentions": mentions,
+    }
+
+
+async def build_event_text(event_id: int, bot: Bot) -> str:
+    _, text, _ = await _collect_event_card_context(event_id, bot)
+    return text
+
+
+async def update_event_message(
+    bot: Bot, event_id: int, thread_id: int, message_id: int
+):
+    event, text, _ = await _collect_event_card_context(event_id, bot)
+    if not event:
+        return
+
+    from bot.utils.notifications import get_bot_start_url
+
     bot_start_url = await get_bot_start_url(bot)
     try:
         await bot.edit_message_text(
@@ -191,6 +150,18 @@ async def update_event_message(
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e):
             raise
+
+
+async def _attendance_reply_text(event_id: int, *, confirmed: bool) -> str:
+    summary = await get_attendance_summary(event_id)
+    confirmed_n = int(summary.get("confirmed") or 0)
+    pending_n = int(summary.get("pending") or 0)
+    declined_n = int(summary.get("declined") or 0)
+    prefix = "✅ Участие подтверждено" if confirmed else "Вы сняты со списка участников"
+    return (
+        f"{prefix}\n"
+        f"Сводка: ✅ {confirmed_n} · ⏳ {pending_n} · ❌ {declined_n}"
+    )
 
 
 @router.callback_query(F.data.startswith("join_"))
@@ -220,7 +191,14 @@ async def join_event(callback: CallbackQuery):
     if user_id in going:
         await finalize_callback(callback, "Вы уже записаны", show_alert=True)
         return
-    await add_participant(event_id, user_id, "going")
+    added = await add_participant(event_id, user_id, "going")
+    if not added:
+        await finalize_callback(
+            callback,
+            "Не удалось записаться: мест нет или вы уже в списке",
+            show_alert=True,
+        )
+        return
     await safe_callback_answer(callback, brand_voice("participation_join"))
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
@@ -251,7 +229,10 @@ async def waitlist_event(callback: CallbackQuery):
     if user_id in waitlist:
         await finalize_callback(callback, "Вы уже в резерве", show_alert=True)
         return
-    await add_participant(event_id, user_id, "waitlist")
+    added = await add_participant(event_id, user_id, "waitlist")
+    if not added:
+        await finalize_callback(callback, "Вы уже в списке участников", show_alert=True)
+        return
     await safe_callback_answer(callback, brand_voice("participation_waitlist"))
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
@@ -307,7 +288,7 @@ async def confirm_attendance(callback: CallbackQuery):
         await finalize_callback(callback, "Вы не в списке участников", show_alert=True)
         return
     await set_attendance_response(event_id, user_id, "confirmed")
-    await finalize_callback(callback, "✅ Участие подтверждено")
+    await finalize_callback(callback, await _attendance_reply_text(event_id, confirmed=True))
 
 
 @router.callback_query(F.data.startswith("decline_attendance_"))
@@ -342,7 +323,7 @@ async def decline_attendance(callback: CallbackQuery):
         await update_event_message(
             callback.bot, event_id, event["thread_id"], event["message_id"]
         )
-    await finalize_callback(callback, "Вы сняты со списка участников")
+    await finalize_callback(callback, await _attendance_reply_text(event_id, confirmed=False))
 
 
 @router.callback_query(F.data.startswith("driver_"))
@@ -353,7 +334,7 @@ async def become_driver(callback: CallbackQuery, state: FSMContext):
         await finalize_callback(callback, "Некорректные данные", show_alert=True)
         return
     user_id = callback.from_user.id
-    if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="decline"):
+    if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="driver"):
         return
     event = await get_event(event_id)
     if not event or event["status"] != "active":

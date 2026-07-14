@@ -167,16 +167,60 @@ async def init_db():
             PRIMARY KEY (event_id, user_id)
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS pending_notifications (
+            id BIGINT PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            text TEXT NOT NULL,
+            parse_mode TEXT,
+            disable_web_page_preview BOOLEAN NOT NULL DEFAULT true,
+            reply_markup_json TEXT,
+            created_at TIMESTAMPTZ,
+            sent_at TIMESTAMPTZ,
+            status TEXT NOT NULL DEFAULT 'pending'
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS birthday_greetings_log (
+            user_id BIGINT NOT NULL,
+            greeted_on DATE NOT NULL,
+            created_at TIMESTAMPTZ,
+            PRIMARY KEY (user_id, greeted_on)
+        )
+        """,
     ]
 
     for statement in statements:
         await execute(statement.strip())
 
+    from bot.db.ids import ensure_id_sequences
+
+    await ensure_id_sequences()
+
+    # Deduplicate participants before UNIQUE constraint (keep highest id).
+    try:
+        await execute(
+            """
+            DELETE FROM participants a
+            USING participants b
+            WHERE a.event_id = b.event_id
+              AND a.user_id = b.user_id
+              AND a.id < b.id
+            """
+        )
+    except Exception as exc:
+        logger.warning("Could not dedupe participants: %s", exc)
+
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_participants_event_id_status ON participants (event_id, status)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_participants_event_id_user_id ON participants (event_id, user_id)",
         "CREATE INDEX IF NOT EXISTS idx_events_status_date_time ON events (status, date_time)",
         "CREATE INDEX IF NOT EXISTS idx_fsm_states_user_id_chat_id ON fsm_states (user_id, chat_id)",
+        "CREATE INDEX IF NOT EXISTS idx_fsm_states_updated_at ON fsm_states (updated_at)",
         "CREATE INDEX IF NOT EXISTS idx_user_category_subscriptions_user_id_category ON user_category_subscriptions (user_id, category)",
+        "CREATE INDEX IF NOT EXISTS idx_attendance_responses_event_id ON attendance_responses (event_id)",
+        "CREATE INDEX IF NOT EXISTS idx_pending_notifications_status_created ON pending_notifications (status, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_users_birth_date ON users (birth_date)",
     ]
     for statement in index_statements:
         await execute(statement)

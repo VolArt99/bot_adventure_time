@@ -60,6 +60,7 @@ async def format_split_bill_text(
     progress_bar = build_payment_progress_bar(paid_count, len(participants))
     total_amount_value = float(bill.get("total_amount") or 0)
     collected_amount = sum(float(p.get("share_amount") or 0) for p in participants if p.get("is_paid"))
+    remaining_amount = max(0.0, total_amount_value - collected_amount)
     bank = (
         bill.get("transfer_bank_custom")
         if bill.get("transfer_bank") == "other"
@@ -68,9 +69,14 @@ async def format_split_bill_text(
     title = escape(str(bill.get("title") or "—"))
     status = escape(str(bill.get("status") or "—"))
     total_amount_text = escape(str(bill.get("total_amount") or "0"))
+    remaining_text = f"{remaining_amount:.0f}"
 
     lines = [
-        *card_header(BRAND["money"], "Разделение чека", "Карточка сбора и статусы оплат"),
+        *card_header(
+            BRAND["money"],
+            "Разделение чека",
+            f"Осталось собрать {remaining_text} ₽",
+        ),
         f"🆔 ID: <code>{split_id}</code>",
         f"🧾 Название: <b>{title}</b>",
         f"📌 Статус: <b>{status}</b>",
@@ -80,6 +86,7 @@ async def format_split_bill_text(
             "Сбор средств",
             [
                 money_collection_line(collected_amount, total_amount_value),
+                f"Осталось: <b>{remaining_text} ₽</b>",
                 progress_bar,
                 f"Оплачено: <b>{paid_count}</b> / ждём: <b>{waiting_count}</b>",
                 f"👥 участников: <b>{len(participants)}</b>",

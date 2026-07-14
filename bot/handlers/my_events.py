@@ -10,7 +10,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.config import TIMEZONE, GROUP_ID
+from bot.config import TIMEZONE, GROUP_ID, ATTENDANCE_CONFIRM_HOURS
 from bot.database import (
     get_user_events,
     get_event,
@@ -22,6 +22,7 @@ from bot.database import (
     set_passenger,
     is_member_approved,
     add_participant,
+    get_attendance_summary,
 )
 from bot.keyboards import event_private_keyboard, my_events_keyboard, period_keyboard
 
@@ -252,6 +253,14 @@ async def show_my_event(callback: CallbackQuery):
         show_event_id=can_manage,
         show_cta=False,
     )
+    if can_manage:
+        summary = await get_attendance_summary(event_id)
+        text = (
+            f"{text}\n\n"
+            f"✅ <b>Явка</b>: подтвердили {summary.get('confirmed', 0)}, "
+            f"ждут ответа {summary.get('pending', 0)}, "
+            f"отказались {summary.get('declined', 0)}"
+        )
     await callback.message.answer(
         text,
         reply_markup=event_private_keyboard(
@@ -267,6 +276,33 @@ async def show_my_event(callback: CallbackQuery):
         delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
         skip_answer=True,
     )
+
+
+@router.callback_query(F.data.startswith("manage_attendance_"))
+async def manage_attendance_summary(callback: CallbackQuery):
+    event_id = parse_callback_suffix_int(callback.data, prefix="manage_attendance_")
+    if event_id is None:
+        await finalize_callback(callback, "Некорректный ID", show_alert=True)
+        return
+    allowed, event = await _can_manage_event(event_id, callback.from_user.id)
+    if not event:
+        await finalize_callback(callback, "Мероприятие не найдено", show_alert=True)
+        return
+    if not allowed:
+        await finalize_callback(callback, "Только организатор или админ", show_alert=True)
+        return
+    summary = await get_attendance_summary(event_id)
+    title = escape(str(event.get("title") or "мероприятие"))
+    text = (
+        f"✅ <b>Явка · {title}</b>\n"
+        f"• Подтвердили: <b>{summary.get('confirmed', 0)}</b>\n"
+        f"• Ждут ответа: <b>{summary.get('pending', 0)}</b>\n"
+        f"• Отказались: <b>{summary.get('declined', 0)}</b>\n\n"
+        "Сводка появляется после напоминания «всё ещё иду» "
+        f"(за {ATTENDANCE_CONFIRM_HOURS} ч до старта)."
+    )
+    await callback.message.answer(text, parse_mode="HTML")
+    await finalize_callback(callback, "Сводка явки")
 
 
 @router.callback_query(F.data.startswith("manage_edit_"))

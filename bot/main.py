@@ -18,6 +18,7 @@ import bot.handlers.digest as digest
 import bot.handlers.my_events as my_events
 import bot.handlers.roadmap as roadmap
 import bot.handlers.subscriptions as subscriptions
+import bot.handlers.birthdays as birthdays
 import bot.handlers.admin as admin
 import bot.handlers.split_bill_feature.handlers as split_bill
 from bot.utils.scheduler import restore_jobs, start_scheduler, schedule_digest
@@ -144,6 +145,7 @@ def _register_handlers() -> None:
     dp.include_router(my_events.router)
     dp.include_router(roadmap.router)
     dp.include_router(subscriptions.router)
+    dp.include_router(birthdays.router)
     dp.include_router(split_bill.router)
     dp.include_router(admin.router)
 
@@ -201,9 +203,11 @@ async def ensure_initialized(*, for_polling: bool = False) -> None:
                 await schedule_digest(bot, GROUP_ID, DIGEST_THREAD_ID)
             from bot.utils.health import start_heartbeat
             from bot.utils.monitoring import schedule_monitoring
+            from bot.utils.scheduler import schedule_maintenance_jobs
 
             start_heartbeat()
             schedule_monitoring(bot)
+            schedule_maintenance_jobs(bot)
             logger.info("Планировщик, напоминания, weekly digest, heartbeat и мониторинг восстановлены")
             _polling_initialized = True
 

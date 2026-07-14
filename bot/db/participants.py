@@ -1,10 +1,13 @@
 """Event participants and carpool management."""
 
-import time
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from .events import get_event
+from .ids import next_id
 from ._core import _run_execute, _run_query
+
+_MAIN_STATUSES = ("going", "driver", "passenger", "ride_seeker")
 
 
 async def add_participant(
@@ -14,39 +17,63 @@ async def add_participant(
     car_seats: int = None,
     passenger_of: int = None,
 ) -> bool:
-    """Добавляет участника в событие."""
-    result = await _run_query(
-        """
-        SELECT id FROM participants
-        WHERE event_id = $event_id AND user_id = $user_id
-        """,
-        parameters={
-            "event_id": event_id,
-            "user_id": user_id,
-        },
-    )
+    """Добавляет участника атомарно (UNIQUE + capacity check для основного состава)."""
+    participant_id = await next_id("participants_id_seq")
+    joined_at = datetime.now(timezone.utc)
+    enforce_capacity = status in _MAIN_STATUSES
 
-    if result[0].rows:
-        return False
+    if enforce_capacity:
+        result = await _run_query(
+            """
+            INSERT INTO participants (
+                id, event_id, user_id, status, car_seats, passenger_of, joined_at
+            )
+            SELECT
+                $id, $event_id, $user_id, $status, $car_seats, $passenger_of, $joined_at
+            WHERE
+                COALESCE((SELECT participant_limit FROM events WHERE id = $event_id), 0) <= 0
+                OR (
+                    SELECT COUNT(*)::bigint
+                    FROM participants
+                    WHERE event_id = $event_id
+                      AND status IN ('going', 'driver', 'passenger', 'ride_seeker')
+                ) < COALESCE((SELECT participant_limit FROM events WHERE id = $event_id), 0)
+            ON CONFLICT (event_id, user_id) DO NOTHING
+            RETURNING id
+            """,
+            parameters={
+                "id": participant_id,
+                "event_id": int(event_id),
+                "user_id": int(user_id),
+                "status": status,
+                "car_seats": car_seats or 0,
+                "passenger_of": passenger_of or 0,
+                "joined_at": joined_at,
+            },
+        )
+    else:
+        result = await _run_query(
+            """
+            INSERT INTO participants (
+                id, event_id, user_id, status, car_seats, passenger_of, joined_at
+            ) VALUES (
+                $id, $event_id, $user_id, $status, $car_seats, $passenger_of, $joined_at
+            )
+            ON CONFLICT (event_id, user_id) DO NOTHING
+            RETURNING id
+            """,
+            parameters={
+                "id": participant_id,
+                "event_id": int(event_id),
+                "user_id": int(user_id),
+                "status": status,
+                "car_seats": car_seats or 0,
+                "passenger_of": passenger_of or 0,
+                "joined_at": joined_at,
+            },
+        )
 
-    participant_id = int(time.time() * 1000) + user_id
-
-    await _run_query(
-        """
-        INSERT INTO participants (id, event_id, user_id, status, car_seats, passenger_of)
-        VALUES ($id, $event_id, $user_id, $status, $car_seats, $passenger_of)
-        """,
-        parameters={
-            "id": participant_id,
-            "event_id": event_id,
-            "user_id": user_id,
-            "status": status,
-            "car_seats": car_seats or 0,
-            "passenger_of": passenger_of or 0,
-        },
-    )
-
-    return True
+    return bool(result[0].rows)
 
 
 async def remove_participant(event_id: int, user_id: int) -> bool:
@@ -320,29 +347,27 @@ async def get_driver_free_seats(driver_id: int, event_id: int) -> int:
 
 
 async def set_driver(event_id: int, user_id: int, car_seats: int) -> bool:
-    """Атомарно назначает пользователя водителем, обновляя существующую запись участника."""
-    participant_id = int(time.time() * 1000) + int(user_id)
-
+    """Атомарно назначает пользователя водителем (UPSERT по UNIQUE)."""
+    participant_id = await next_id("participants_id_seq")
+    joined_at = datetime.now(timezone.utc)
     await _run_execute(
         """
-        DELETE FROM participants
-        WHERE event_id = $event_id AND user_id = $user_id
-        """,
-        parameters={
-            "event_id": int(event_id),
-            "user_id": int(user_id),
-        },
-    )
-    await _run_execute(
-        """
-        INSERT INTO participants (id, event_id, user_id, status, car_seats, passenger_of)
-        VALUES ($id, $event_id, $user_id, 'driver', $car_seats, 0)
+        INSERT INTO participants (
+            id, event_id, user_id, status, car_seats, passenger_of, joined_at
+        ) VALUES (
+            $id, $event_id, $user_id, 'driver', $car_seats, 0, $joined_at
+        )
+        ON CONFLICT (event_id, user_id) DO UPDATE
+        SET status = 'driver',
+            car_seats = EXCLUDED.car_seats,
+            passenger_of = 0
         """,
         parameters={
             "id": participant_id,
             "event_id": int(event_id),
             "user_id": int(user_id),
             "car_seats": int(car_seats),
+            "joined_at": joined_at,
         },
     )
     return True
@@ -353,27 +378,26 @@ async def set_passenger(event_id: int, user_id: int, driver_id: int) -> bool:
     free_seats = await get_driver_free_seats(driver_id, event_id)
     if free_seats <= 0:
         return False
-    participant_id = int(time.time() * 1000) + int(user_id)
+    participant_id = await next_id("participants_id_seq")
+    joined_at = datetime.now(timezone.utc)
     await _run_execute(
         """
-        DELETE FROM participants
-        WHERE event_id = $event_id AND user_id = $user_id
-        """,
-        parameters={
-            "event_id": int(event_id),
-            "user_id": int(user_id),
-        },
-    )
-    await _run_execute(
-        """
-        INSERT INTO participants (id, event_id, user_id, status, car_seats, passenger_of)
-        VALUES ($id, $event_id, $user_id, 'passenger', 0, $driver_id)
+        INSERT INTO participants (
+            id, event_id, user_id, status, car_seats, passenger_of, joined_at
+        ) VALUES (
+            $id, $event_id, $user_id, 'passenger', 0, $driver_id, $joined_at
+        )
+        ON CONFLICT (event_id, user_id) DO UPDATE
+        SET status = 'passenger',
+            car_seats = 0,
+            passenger_of = EXCLUDED.passenger_of
         """,
         parameters={
             "id": participant_id,
             "event_id": int(event_id),
             "user_id": int(user_id),
             "driver_id": int(driver_id),
+            "joined_at": joined_at,
         },
     )
     return True

@@ -82,6 +82,12 @@ def event_manage_keyboard(event_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="✏️ Редактировать", callback_data=f"manage_edit_{event_id}")],
             [InlineKeyboardButton(text="📋 Копировать", callback_data=f"copy_event_{event_id}")],
+            [
+                InlineKeyboardButton(
+                    text="✅ Явка",
+                    callback_data=f"manage_attendance_{event_id}",
+                )
+            ],
             [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_confirm_{event_id}")],
         ]
     )
@@ -377,6 +383,11 @@ def menu_section_keyboard(section: str, is_admin_or_owner: bool = False) -> Inli
                 InlineKeyboardButton(text="📈 Моя статистика", callback_data="menu_action_my_stats"),
                 InlineKeyboardButton(text="🏆 Топ активности", callback_data="menu_action_top"),
             ],
+            [
+                InlineKeyboardButton(text="🎂 День рождения", callback_data="menu_cmd_birthday"),
+                InlineKeyboardButton(text="📅 Указать ДР", callback_data="menu_cmd_set_birthday"),
+            ],
+            [InlineKeyboardButton(text="🗑 Удалить ДР", callback_data="menu_cmd_clear_birthday")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu_home")],
         ],
         "help": [

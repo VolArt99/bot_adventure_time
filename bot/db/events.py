@@ -1,9 +1,9 @@
 """Event CRUD and queries."""
 
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+from .ids import next_id
 from .subscriptions import get_user_category_subscriptions
 from ._core import (
     _event_matches_period_filter,
@@ -15,7 +15,8 @@ from ._core import (
 
 async def create_event(event_data: Dict[str, Any]) -> int:
     """Создаёт мероприятие и возвращает его ID."""
-    event_id = int(time.time() * 1000)
+    event_id = await next_id("events_id_seq")
+    created_at = datetime.now(timezone.utc)
 
     await _run_query(
         """
@@ -24,13 +25,13 @@ async def create_event(event_data: Dict[str, Any]) -> int:
             location,
             price_total, price_per_person, participant_limit,
             thread_id, message_id, creator_id,
-            responsible_id, weather_info, carpool_enabled, category
+            responsible_id, weather_info, carpool_enabled, category, created_at
         ) VALUES (
             $id, $title, $description, $date_time, $duration_minutes, $period_end,
             $location,
             $price_total, $price_per_person, $participant_limit,
             $thread_id, $message_id, $creator_id,
-            $responsible_id, $weather_info, $carpool_enabled, $category
+            $responsible_id, $weather_info, $carpool_enabled, $category, $created_at
         )
         """,
         parameters={
@@ -51,6 +52,7 @@ async def create_event(event_data: Dict[str, Any]) -> int:
             "weather_info": event_data.get("weather_info", ""),
             "carpool_enabled": bool(event_data.get("carpool_enabled", False)),
             "category": event_data.get("category", ""),
+            "created_at": created_at,
         },
     )
 
