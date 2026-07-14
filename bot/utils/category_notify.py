@@ -45,7 +45,7 @@ async def notify_category_subscribers(
     safe_title = escape(str(title))
     categories_text = escape(", ".join(categories))
     text = (
-        "🔔 <b>Новое мероприятие по вашей подписке</b>\n"
+        "🔔 <b>Новое мероприятие по твоей подписке</b>\n"
         f"• <b>{safe_title}</b>\n"
         f"• Категории: {categories_text}\n"
         f"• {link_line}"
@@ -55,7 +55,7 @@ async def notify_category_subscribers(
     for user_id in user_ids:
         if int(user_id) == int(creator_id):
             continue
-        if await send_private_dm(bot, int(user_id), text):
+        if await send_private_dm(bot, int(user_id), text, notification_kind="broadcast"):
             sent += 1
     logger.info(
         "category_push event_id=%s categories=%s recipients=%s sent=%s",

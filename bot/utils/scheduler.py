@@ -115,7 +115,7 @@ async def send_empty_event_organizer_alert(event_id: int, bot) -> None:
         )
         from bot.utils.notifications import send_private_dm
 
-        await send_private_dm(bot, organizer_id, text)
+        await send_private_dm(bot, organizer_id, text, notification_kind="personal")
     except Exception as exc:
         logger.error("Ошибка empty-alert event_id=%s: %s", event_id, exc)
 
@@ -141,7 +141,7 @@ async def send_attendance_prompt(event_id: int, bot) -> None:
         keyboard = attendance_confirmation_keyboard(event_id)
         sent = 0
         for uid in participants:
-            if await send_private_dm(bot, uid, text, reply_markup=keyboard):
+            if await send_private_dm(bot, uid, text, reply_markup=keyboard, notification_kind="personal"):
                 sent += 1
 
         logger.info(
@@ -245,6 +245,7 @@ async def send_reminder(event_id: int, interval: int, bot):
                 uid,
                 text,
                 return_message_id=True,
+                notification_kind="personal",
             )
             if isinstance(message_id, int):
                 dm_message_ids[uid] = message_id

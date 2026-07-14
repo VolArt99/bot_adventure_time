@@ -44,10 +44,13 @@ from bot.database import (
 from bot.filters.admin import admin_only
 from bot.filters.command_access import restricted_command
 from bot.keyboards import (
+    birthday_menu_keyboard,
+    community_menu_keyboard,
     donation_keyboard,
     intro_status_keyboard,
     main_menu_keyboard,
     menu_section_keyboard,
+    notification_settings_keyboard,
     onboarding_start_keyboard,
     start_menu_keyboard,
     quick_event_templates_keyboard,
@@ -67,6 +70,7 @@ from .views import (
     build_help_text,
     build_main_menu_text,
     build_menu_section_text,
+    build_notification_mode_text,
     build_not_enough_rights_text,
     build_onboarding_guard_text,
     build_onboarding_welcome_text,
@@ -392,14 +396,14 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
     if action == "my_events":
         from bot.keyboards import period_keyboard
 
-        await callback.message.answer("Выберите период для списка ваших мероприятий:", reply_markup=period_keyboard("my_events_period"))
+        await callback.message.answer("Выбери период для списка твоих мероприятий:", reply_markup=period_keyboard("my_events_period"))
         await finalize_callback(callback, "Открыто")
         return
 
     if action == "digest":
         from bot.keyboards import period_keyboard
 
-        await callback.message.answer("Выберите период для дайджеста:", reply_markup=period_keyboard("digest_period"))
+        await callback.message.answer("Выбери период для дайджеста:", reply_markup=period_keyboard("digest_period"))
         await finalize_callback(callback, "Открыто")
         return
 
@@ -416,20 +420,69 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
         await finalize_callback(callback, "Открыто")
         return
 
+    if action == "notification_mode":
+        from bot.database import get_user_notification_settings
+
+        current_mode = await get_user_notification_settings(user_id)
+        await _replace_callback_message(
+            callback,
+            build_notification_mode_text(current_mode=current_mode),
+            reply_markup=notification_settings_keyboard(current_mode=current_mode),
+        )
+        await finalize_callback(callback, "Открыто")
+        return
+
     if action == "my_digest":
         from bot.keyboards import period_keyboard
 
-        await callback.message.answer("Выберите период для персонального дайджеста по вашим подпискам:", reply_markup=period_keyboard("my_digest"))
+        await callback.message.answer(
+            "Выбери период для персонального дайджеста по твоим подпискам:",
+            reply_markup=period_keyboard("my_digest"),
+        )
+        await finalize_callback(callback, "Открыто")
+        return
+
+    if action == "birthday":
+        from bot.database import ensure_user_row, format_birthday_display, get_user_birth_date
+
+        await ensure_user_row(user_id, callback.from_user.username)
+        stored = await get_user_birth_date(user_id)
+        if stored:
+            display = format_birthday_display(stored)
+            text = (
+                f"🎂 Твой день рождения: <b>{display}</b>\n"
+                f"{brand_voice('birthday_saved_hint')}\n\n"
+                "Изменить: <code>/set_birthday ДД.ММ</code>"
+            )
+        else:
+            text = (
+                "🎂 День рождения ещё не указан.\n"
+                "Добавь: <code>/set_birthday ДД.ММ</code> (год не нужен)."
+            )
+        await callback.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=birthday_menu_keyboard(),
+        )
         await finalize_callback(callback, "Открыто")
         return
 
     if action in {"random_optin", "random_optout"}:
-        from bot.database import set_random_meeting_opt_in
+        from bot.database import is_random_meeting_opt_in, set_random_meeting_opt_in
 
         await set_random_meeting_opt_in(user_id, action == "random_optin")
-        text = "✅ Вы участвуете в рандомных встречах 1:1." if action == "random_optin" else "👌 Вы исключены из рандомных встреч 1:1."
-        await callback.message.answer(text)
-        await finalize_callback(callback, "Готово")
+        is_opted = await is_random_meeting_opt_in(user_id)
+        text = (
+            "✅ Ты участвуешь в случайных встречах 1:1."
+            if is_opted
+            else "👌 Ты не участвуешь в случайных встречах 1:1."
+        )
+        await _replace_callback_message(
+            callback,
+            build_menu_section_text("community", is_admin_or_owner=is_admin_or_owner, random_opted_in=is_opted) or text,
+            reply_markup=community_menu_keyboard(is_random_opted_in=is_opted),
+        )
+        await finalize_callback(callback, text)
         return
 
     if action == "my_stats":
@@ -437,7 +490,7 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
 
         stats = await get_user_stats(user_id)
         await callback.message.answer(
-            "📊 <b>Ваша статистика</b>\n"
+            "📊 <b>Твоя статистика</b>\n"
             f"• Уникальных мероприятий: <b>{stats.get('events_count', 0) or 0}</b>\n"
             f"• Подтверждённых участий: <b>{stats.get('total_participations', 0) or 0}</b>",
             parse_mode="HTML",
@@ -513,7 +566,7 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
             from bot.keyboards import period_keyboard
 
             await callback.message.answer(
-                "Выберите период для публикации списка мероприятий:",
+                "Выбери период для публикации списка мероприятий:",
                 reply_markup=period_keyboard("broadcast_period"),
             )
         else:
@@ -527,7 +580,7 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
             else:
                 topics = await get_topics_list_from_db()
                 await callback.message.answer(
-                    "Выберите группу/подгруппу, куда опубликовать random 1:1 пары:",
+                    "Выбери группу/подгруппу, куда опубликовать случайные пары 1:1:",
                     reply_markup=random_pairs_topics_keyboard(topics),
                 )
         await finalize_callback(callback, "Готово")
@@ -553,6 +606,26 @@ async def _replace_callback_message(callback: CallbackQuery, text: str, *, reply
         if "message is not modified" in str(exc).lower():
             return
         await callback.message.answer(text, parse_mode="HTML", reply_markup=reply_markup)
+
+
+@router.callback_query(F.data.startswith("notify_"))
+async def notification_mode_callback(callback: CallbackQuery):
+    mode = callback.data.removeprefix("notify_")
+    if mode not in {"all", "mine", "off"}:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
+
+    from bot.database import get_user_notification_settings, set_user_notification_settings
+
+    user_id = callback.from_user.id
+    await set_user_notification_settings(user_id, mode)
+    current_mode = await get_user_notification_settings(user_id)
+    await _replace_callback_message(
+        callback,
+        build_notification_mode_text(current_mode=current_mode),
+        reply_markup=notification_settings_keyboard(current_mode=current_mode),
+    )
+    await finalize_callback(callback, brand_voice("notification_mode_saved"))
 
 
 @router.callback_query(F.data.startswith("menu_cmd_"))
@@ -584,7 +657,8 @@ async def menu_command_callback(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("menu_"))
 async def menu_callback(callback: CallbackQuery):
     section = callback.data.removeprefix("menu_")
-    is_admin_or_owner = has_admin_or_owner(callback.from_user.id)
+    user_id = callback.from_user.id
+    is_admin_or_owner = has_admin_or_owner(user_id)
     if section == "home":
         await _replace_callback_message(
             callback,
@@ -593,7 +667,39 @@ async def menu_callback(callback: CallbackQuery):
         )
         await finalize_callback(callback, "Главное меню")
         return
-        
+
+    if section == "community":
+        from bot.database import is_random_meeting_opt_in
+
+        is_opted = await is_random_meeting_opt_in(user_id)
+        text = build_menu_section_text(
+            "community",
+            is_admin_or_owner=is_admin_or_owner,
+            random_opted_in=is_opted,
+        )
+        if not text:
+            await finalize_callback(callback, "Раздел меню недоступен", show_alert=True)
+            return
+        await _replace_callback_message(
+            callback,
+            text,
+            reply_markup=community_menu_keyboard(is_random_opted_in=is_opted),
+        )
+        await finalize_callback(callback, "Раздел открыт")
+        return
+
+    if section == "notification_mode":
+        from bot.database import get_user_notification_settings
+
+        current_mode = await get_user_notification_settings(user_id)
+        await _replace_callback_message(
+            callback,
+            build_notification_mode_text(current_mode=current_mode),
+            reply_markup=notification_settings_keyboard(current_mode=current_mode),
+        )
+        await finalize_callback(callback, "Раздел открыт")
+        return
+
     text = build_menu_section_text(section, is_admin_or_owner=is_admin_or_owner)
     if not text:
         await finalize_callback(callback, "Раздел меню недоступен", show_alert=True)
@@ -739,10 +845,16 @@ async def update_topic_names(message: Message):
 
 @router.callback_query(F.data == "cancel_create")
 async def cancel_create(callback: CallbackQuery, state: FSMContext):
+    current_state = await state.get_state() or ""
     await state.clear()
+    cancel_text = (
+        brand_voice("split_bill_cancel")
+        if current_state.startswith("SplitBillCreate:")
+        else brand_voice("wizard_cancel")
+    )
     await finalize_callback(
         callback,
-        brand_voice("wizard_cancel"),
+        cancel_text,
         delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
         show_alert=True,
     )

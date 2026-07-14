@@ -94,7 +94,7 @@ async def cmd_random_optin(message: Message):
         await message.answer("❌ Команда доступна только актуальным участникам группы.")
         return
     await set_random_meeting_opt_in(message.from_user.id, True)
-    await message.answer("✅ Вы участвуете в рандомных встречах 1:1.")
+    await message.answer("✅ Ты участвуешь в случайных встречах 1:1.")
 
 
 @router.message(Command("random_optout"))
@@ -103,7 +103,7 @@ async def cmd_random_optout(message: Message):
         await message.answer("❌ Команда доступна только актуальным участникам группы.")
         return
     await set_random_meeting_opt_in(message.from_user.id, False)
-    await message.answer("👌 Вы исключены из рандомных встреч 1:1.")
+    await message.answer("👌 Ты не участвуешь в случайных встречах 1:1.")
 
 
 @router.message(Command("random_pairs"))

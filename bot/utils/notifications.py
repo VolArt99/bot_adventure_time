@@ -73,8 +73,24 @@ async def send_private_dm(
     reply_markup=None,
     return_message_id: bool = False,
     queue_if_quiet: bool = True,
+    notification_kind: str | None = None,
 ) -> bool | int | None:
-    """Отправляет ЛС; в тихие часы ставит в очередь (если queue_if_quiet)."""
+    """Отправляет ЛС; в тихие часы ставит в очередь (если queue_if_quiet).
+
+    ``notification_kind``: ``broadcast`` или ``personal`` — учитывает режим уведомлений пользователя.
+    """
+    if notification_kind is not None:
+        from bot.database import get_user_notification_settings, should_deliver_notification
+
+        mode = await get_user_notification_settings(user_id)
+        if not should_deliver_notification(mode, kind=notification_kind):
+            logger.info(
+                "notification_skipped user_id=%s kind=%s mode=%s",
+                user_id,
+                notification_kind,
+                mode,
+            )
+            return False
     if respect_quiet_hours and is_quiet_hours():
         if queue_if_quiet:
             from bot.db.pending_notifications import (

@@ -14,6 +14,20 @@ async def set_random_meeting_opt_in(user_id: int, is_enabled: bool) -> None:
     )
 
 
+async def is_random_meeting_opt_in(user_id: int) -> bool:
+    result = await _run_query(
+        """
+        SELECT is_enabled
+        FROM random_meeting_opt_in
+        WHERE user_id = $user_id
+        """,
+        parameters={"user_id": int(user_id)},
+    )
+    if not result[0].rows:
+        return False
+    return bool(result[0].rows[0].is_enabled)
+
+
 async def get_random_meeting_opt_in_users() -> list[int]:
     result = await _run_query(
         """

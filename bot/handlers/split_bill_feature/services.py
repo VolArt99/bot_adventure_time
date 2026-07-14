@@ -114,7 +114,7 @@ async def format_split_bill_text(
             checklist_lines.append(f"{paid} {mention} — {p.get('share_amount')} ₽")
 
     lines.extend(card_section("Чек-лист оплат", checklist_lines))
-    lines.extend(card_cta("Нажмите «Оплатил(а)», когда перевели свою долю."))
+    lines.extend(card_cta("Нажми «Оплатил(а)», когда переведёшь свою долю."))
     return "\n".join(lines)
 
 
@@ -223,14 +223,20 @@ async def remind_unpaid_participants(bot, split_id: int) -> tuple[int, int]:
     share_hint = unpaid[0].get("share_amount")
     text = (
         f"🔔 Напоминание по чеку «{title}»\n"
-        f"Пожалуйста, переведите свою долю"
+        f"Переведи свою долю"
         + (f" ({share_hint} ₽)" if share_hint else "")
-        + " и отметьте «Оплатил(а)» в карточке."
+        + " и отметь «Оплатил(а)» в карточке."
     )
 
     sent = 0
     for participant in unpaid:
-        if await send_private_dm(bot, int(participant["user_id"]), text, parse_mode=None):
+        if await send_private_dm(
+            bot,
+            int(participant["user_id"]),
+            text,
+            parse_mode=None,
+            notification_kind="personal",
+        ):
             sent += 1
     return sent, len(unpaid)
 

@@ -10,6 +10,7 @@ from aiogram.types import CallbackQuery
 
 from bot.database import is_member_approved
 from bot.utils.callbacks import finalize_callback
+from bot.utils.design import brand_voice
 
 
 def approved_member_callback_only(handler: Callable[..., Awaitable[Any]]):
@@ -21,8 +22,7 @@ def approved_member_callback_only(handler: Callable[..., Awaitable[Any]]):
         if not user or not await is_member_approved(user.id):
             await finalize_callback(
                 callback,
-                "Чтобы записываться на мероприятия, напишите боту /start в личные сообщения "
-                "и дождитесь одобрения заявки.",
+                brand_voice("approval_required"),
                 show_alert=True,
             )
             return

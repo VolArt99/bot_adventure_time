@@ -107,7 +107,7 @@ async def _collect_event_card_context(event_id: int, bot: Bot) -> tuple[dict | N
         topic_name=topic_name,
         organizer_mention=mentions.get(event["creator_id"]),
         responsible_mention=mentions.get(responsible_id),
-        show_cta=False,
+        show_cta=True,
     )
     return event, text, {
         "going": going,
@@ -157,7 +157,7 @@ async def _attendance_reply_text(event_id: int, *, confirmed: bool) -> str:
     confirmed_n = int(summary.get("confirmed") or 0)
     pending_n = int(summary.get("pending") or 0)
     declined_n = int(summary.get("declined") or 0)
-    prefix = "✅ Участие подтверждено" if confirmed else "Вы сняты со списка участников"
+    prefix = "✅ Участие подтверждено" if confirmed else "Тебя сняли со списка участников"
     return (
         f"{prefix}\n"
         f"Сводка: ✅ {confirmed_n} · ⏳ {pending_n} · ❌ {declined_n}"
@@ -183,19 +183,19 @@ async def join_event(callback: CallbackQuery):
         get_participants(event_id, "waitlist"),
     )
     if event["participant_limit"] and len(going) >= event["participant_limit"]:
-        await finalize_callback(callback, "Мест нет. Вы можете записаться в резерв", show_alert=True)
+        await finalize_callback(callback, "Мест нет. Можешь записаться в резерв", show_alert=True)
         return
     if user_id in waitlist:
-        await finalize_callback(callback, "Вы уже в резерве. Откажитесь от резерва, чтобы записаться", show_alert=True)
+        await finalize_callback(callback, "Ты уже в резерве. Откажись от резерва, чтобы записаться", show_alert=True)
         return
     if user_id in going:
-        await finalize_callback(callback, "Вы уже записаны", show_alert=True)
+        await finalize_callback(callback, "Ты уже записан", show_alert=True)
         return
     added = await add_participant(event_id, user_id, "going")
     if not added:
         await finalize_callback(
             callback,
-            "Не удалось записаться: мест нет или вы уже в списке",
+            "Не удалось записаться: мест нет или ты уже в списке",
             show_alert=True,
         )
         return
@@ -224,16 +224,21 @@ async def waitlist_event(callback: CallbackQuery):
         get_participants(event_id, "waitlist"),
     )
     if user_id in going:
-        await finalize_callback(callback, "Вы уже в основном списке", show_alert=True)
+        await finalize_callback(callback, "Ты уже в основном списке", show_alert=True)
         return
     if user_id in waitlist:
-        await finalize_callback(callback, "Вы уже в резерве", show_alert=True)
+        await finalize_callback(callback, "Ты уже в резерве", show_alert=True)
         return
     added = await add_participant(event_id, user_id, "waitlist")
     if not added:
-        await finalize_callback(callback, "Вы уже в списке участников", show_alert=True)
+        await finalize_callback(callback, "Ты уже в списке участников", show_alert=True)
         return
-    await safe_callback_answer(callback, brand_voice("participation_waitlist"))
+    waitlist_after = await get_participants(event_id, "waitlist")
+    position = waitlist_after.index(user_id) + 1 if user_id in waitlist_after else len(waitlist_after)
+    await safe_callback_answer(
+        callback,
+        brand_voice("participation_waitlist_position").format(position=position),
+    )
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
     )
@@ -259,10 +264,10 @@ async def seek_ride_toggle(callback: CallbackQuery):
 
     result = await toggle_ride_seeker(event_id, user_id)
     messages = {
-        "added": "🙋 Вы в списке «ищу попутку»",
-        "removed": "Сняли отметку «ищу попутку»",
+        "added": brand_voice("carpool_seek_added"),
+        "removed": brand_voice("carpool_seek_removed"),
         "denied": "Недоступно для водителей и пассажиров",
-        "full": "Мест нет. Запишитесь в резерв",
+        "full": "Мест нет. Запишись в резерв",
     }
     await safe_callback_answer(callback, messages.get(result, "Готово"))
     if result in {"added", "removed"}:
@@ -285,7 +290,7 @@ async def confirm_attendance(callback: CallbackQuery):
         return
     main = await get_main_participants(event_id)
     if user_id not in main:
-        await finalize_callback(callback, "Вы не в списке участников", show_alert=True)
+        await finalize_callback(callback, "Тебя нет в списке участников", show_alert=True)
         return
     await set_attendance_response(event_id, user_id, "confirmed")
     await finalize_callback(callback, await _attendance_reply_text(event_id, confirmed=True))
@@ -305,7 +310,7 @@ async def decline_attendance(callback: CallbackQuery):
         return
     main = await get_main_participants(event_id)
     if user_id not in main:
-        await finalize_callback(callback, "Вы не в списке участников", show_alert=True)
+        await finalize_callback(callback, "Тебя нет в списке участников", show_alert=True)
         return
     await set_attendance_response(event_id, user_id, "declined")
     removed = await remove_participant(event_id, user_id)
@@ -316,8 +321,9 @@ async def decline_attendance(callback: CallbackQuery):
         await send_private_dm(
             callback.bot,
             moved_user,
-            f"Освободилось место на мероприятии {event['title']}! Вы автоматически добавлены в основной список.",
+            brand_voice("waitlist_promoted").format(title=event["title"]),
             parse_mode=None,
+            notification_kind="personal",
         )
     if event.get("message_id"):
         await update_event_message(
@@ -343,11 +349,11 @@ async def become_driver(callback: CallbackQuery, state: FSMContext):
     # Проверяем, не является ли уже водителем или пассажиром
     existing = await get_participants(event_id, "driver")
     if user_id in existing:
-        await finalize_callback(callback, "Вы уже водитель", show_alert=True)
+        await finalize_callback(callback, "Ты уже водитель", show_alert=True)
         return
     existing_pass = await get_participants(event_id, "passenger")
     if user_id in existing_pass:
-        await finalize_callback(callback, "Вы уже пассажир. Откажитесь от места, чтобы стать водителем", show_alert=True)
+        await finalize_callback(callback, "Ты уже пассажир. Откажись от места, чтобы стать водителем", show_alert=True)
         return
     # Запрашиваем количество мест
     await state.update_data(event_id=event_id)
@@ -355,10 +361,10 @@ async def become_driver(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.bot.send_message(
             user_id,
-            "Сколько свободных мест в вашей машине (включая вас)? Введите число:",
+            brand_voice("carpool_driver_seats"),
         )
     except TelegramForbiddenError:
-        await finalize_callback(callback, "Не могу написать в ЛС. Откройте чат с ботом и нажмите Start.", show_alert=True)
+        await finalize_callback(callback, "Не могу написать в ЛС. Открой чат с ботом и нажми Start.", show_alert=True)
         await state.clear()
         return
     await finalize_callback(callback)
@@ -369,10 +375,10 @@ async def process_car_seats(message: Message, state: FSMContext):
     try:
         seats = int(message.text)
         if seats < 1:
-            await message.answer("Число мест должно быть больше 0. Попробуйте снова:")
+            await message.answer("Число мест должно быть больше 0. Попробуй ещё раз:")
             return
     except ValueError:
-        await message.answer("Введите число:")
+        await message.answer("Введи число:")
         return
     data = await state.get_data()
     event_id = data["event_id"]
@@ -381,7 +387,7 @@ async def process_car_seats(message: Message, state: FSMContext):
     success = await add_driver(event_id, user_id, seats)
     if not success:
         await message.answer(
-            "Не удалось добавить водителя. Возможно, вы уже участвуете."
+            "Не удалось добавить водителя. Возможно, ты уже участвуешь."
         )
         await state.clear()
         return
@@ -394,7 +400,7 @@ async def process_car_seats(message: Message, state: FSMContext):
     await update_event_message(
         message.bot, event_id, event["thread_id"], event["message_id"]
     )
-    await message.answer("Вы успешно добавлены как водитель!")
+    await message.answer(brand_voice("carpool_driver_added"))
     await state.clear()
 
 
@@ -413,16 +419,16 @@ async def become_passenger(callback: CallbackQuery):
     # Проверяем, не является ли уже водителем или пассажиром
     existing = await get_participants(event_id, "driver")
     if user_id in existing:
-        await finalize_callback(callback, "Вы водитель. Чтобы стать пассажиром, сначала откажитесь от вождения.", show_alert=True)
+        await finalize_callback(callback, "Ты водитель. Чтобы стать пассажиром, сначала откажись от вождения.", show_alert=True)
         return
     existing_pass = await get_participants(event_id, "passenger")
     if user_id in existing_pass:
-        await finalize_callback(callback, "Вы уже пассажир", show_alert=True)
+        await finalize_callback(callback, "Ты уже пассажир", show_alert=True)
         return
     # Получаем список водителей со свободными местами
     drivers = await get_drivers_with_passengers(event_id)
     if not drivers:
-        await finalize_callback(callback, "Пока нет водителей. Станьте первым водителем!", show_alert=True)
+        await finalize_callback(callback, "Пока нет водителей. Стань первым! 🚗", show_alert=True)
         return
     # Формируем клавиатуру выбора водителя
     builder = InlineKeyboardBuilder()
@@ -445,10 +451,10 @@ async def become_passenger(callback: CallbackQuery):
     builder.adjust(1)
     try:
         await callback.bot.send_message(
-            user_id, "Выберите водителя:", reply_markup=builder.as_markup()
+            user_id, brand_voice("carpool_choose_driver"), reply_markup=builder.as_markup()
         )
     except TelegramForbiddenError:
-        await finalize_callback(callback, "Не могу написать в ЛС. Откройте чат с ботом и нажмите Start.", show_alert=True)
+        await finalize_callback(callback, "Не могу написать в ЛС. Открой чат с ботом и нажми Start.", show_alert=True)
         return
     await finalize_callback(callback)
 
@@ -473,7 +479,7 @@ async def choose_driver(callback: CallbackQuery):
         await add_participant(event_id, user_id, "going")
     # Обновляем сообщение
     event = await get_event(event_id)
-    await safe_callback_answer(callback, "Вы успешно присоединились к водителю!")
+    await safe_callback_answer(callback, brand_voice("carpool_passenger_added"))
     await update_event_message(
         callback.bot, event_id, event["thread_id"], event["message_id"]
     )
@@ -499,7 +505,7 @@ async def decline_event(callback: CallbackQuery):
         return
     removed = await remove_participant(event_id, user_id)
     if not removed:
-        await finalize_callback(callback, "Вы не записаны на это мероприятие", show_alert=True)
+        await finalize_callback(callback, "Тебя нет в записи на это мероприятие", show_alert=True)
         return
     moved_user = await move_from_waitlist(event_id)
     if moved_user:
@@ -508,8 +514,9 @@ async def decline_event(callback: CallbackQuery):
         await send_private_dm(
             callback.bot,
             moved_user,
-            f"Освободилось место на мероприятии {event['title']}! Вы автоматически добавлены в основной список.",
+            brand_voice("waitlist_promoted").format(title=event["title"]),
             parse_mode=None,
+            notification_kind="personal",
         )
     await safe_callback_answer(callback, brand_voice("participation_decline"))
     await update_event_message(

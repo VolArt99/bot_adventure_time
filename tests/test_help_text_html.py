@@ -17,7 +17,15 @@ from bot.handlers.common_feature.views import (
     build_onboarding_welcome_text,
     build_owner_request_text,
 )
-from bot.keyboards import event_actions, main_menu_keyboard, menu_section_keyboard, quick_event_templates_keyboard, start_menu_keyboard
+from bot.keyboards import (
+    birthday_menu_keyboard,
+    community_menu_keyboard,
+    event_actions,
+    main_menu_keyboard,
+    menu_section_keyboard,
+    quick_event_templates_keyboard,
+    start_menu_keyboard,
+)
 from bot.utils.design import CARD_DIVIDER
 
 
@@ -41,11 +49,10 @@ class HelpTextHtmlTests(unittest.TestCase):
         menu_text = build_main_menu_text(is_admin_or_owner=True)
         section_text = build_menu_section_text("events", is_admin_or_owner=False)
 
-        self.assertIn("Adventure Time Control Center", menu_text)
+        self.assertIn("Центр приключений", menu_text)
         self.assertIn("Куда отправимся", menu_text)
         self.assertIn(CARD_DIVIDER, menu_text)
-        self.assertIn("Что делает каждая кнопка", menu_text)
-        self.assertIn("<b>События</b>", menu_text)
+        self.assertNotIn("Что делает каждая кнопка", menu_text)
         self.assertIn("🎉", section_text)
         self.assertIn("👉 <i>", section_text)
 
@@ -65,8 +72,9 @@ class HelpTextHtmlTests(unittest.TestCase):
         self.assertIn("@source_owner", approval)
         self.assertIn("Шаг 1/3 · Старт", build_onboarding_welcome_text())
         self.assertIn("Шаг 2/3 · Правила", build_group_rules_text())
-        self.assertNotIn("Политика, ЛГБТ", build_group_rules_text())
-        self.assertIn("Политика, ЛГБТ", build_group_rules_full_text())
+        self.assertIn("ℹ️ Полный текст", build_group_rules_text())
+        self.assertIn("Полные правила группы", build_group_rules_full_text())
+        self.assertNotIn("ЛГБТ", build_group_rules_full_text())
         self.assertIn("Шаг 3/3 · Вход в группу", approval)
         self.assertIn("Правила изучил(а)", build_onboarding_guard_text())
         self.assertIn("&lt;Alice&gt; &amp; Bob", owner_request)
@@ -78,7 +86,7 @@ class HelpTextHtmlTests(unittest.TestCase):
 
         self.assertNotIn("🧭 Все команды", labels)
         self.assertIn("🎉 События", labels)
-        self.assertIn("🧾 Деньги", labels)
+        self.assertIn("🧾 Скинуться", labels)
         self.assertIn("🔔 Уведомления", labels)
         self.assertIn("🤝 Комьюнити", labels)
         self.assertIn("🔴 Админ", labels)
@@ -106,7 +114,7 @@ class HelpTextHtmlTests(unittest.TestCase):
             bot_start_url="https://t.me/testbot?start=onboard",
         )
         rows = keyboard.inline_keyboard
-        self.assertEqual(rows[0][0].text, "🤖 Запустить бота")
+        self.assertEqual(rows[0][0].text, "🤖 Открыть в ЛС")
         self.assertEqual(rows[0][0].url, "https://t.me/testbot?start=onboard")
 
     def test_event_card_keyboard_hides_start_bot_in_private_view(self):
@@ -116,7 +124,7 @@ class HelpTextHtmlTests(unittest.TestCase):
             bot_start_url="https://t.me/testbot?start=onboard",
         )
         labels = [button.text for row in keyboard.inline_keyboard for button in row]
-        self.assertNotIn("🤖 Запустить бота", labels)
+        self.assertNotIn("🤖 Открыть в ЛС", labels)
 
     def test_event_card_keyboard_personalized_for_going(self):
         keyboard = event_actions(42, participation_status="going")
@@ -130,8 +138,8 @@ class HelpTextHtmlTests(unittest.TestCase):
         self.assertEqual(event_callbacks["➕ Создать встречу"], "menu_action_create_event")
         manage_menu = menu_section_keyboard("events_manage", is_admin_or_owner=False)
         manage_callbacks = {button.text: button.callback_data for row in manage_menu.inline_keyboard for button in row}
-        self.assertEqual(manage_callbacks["🔗 Ссылка на карточку"], "menu_cmd_send_event_card")
-        self.assertEqual(manage_callbacks["✏️ Редактировать"], "menu_cmd_edit_event")
+        self.assertEqual(manage_callbacks["⌨️ /send_event_card"], "menu_cmd_send_event_card")
+        self.assertEqual(manage_callbacks["⌨️ /edit_event"], "menu_cmd_edit_event")
 
     def test_command_action_text_contains_examples(self):
         text = build_command_action_text("find_events")
@@ -162,13 +170,17 @@ class HelpTextHtmlTests(unittest.TestCase):
             "events_manage",
             "money",
             "notifications",
-            "community",
+            "notification_mode",
             "help",
         )
         if is_admin_or_owner:
-            sections = (*sections, "admin")
-        for section in sections:
-            keyboard = menu_section_keyboard(section, is_admin_or_owner=is_admin_or_owner)
+            sections = (*sections, "admin", "admin_people", "admin_content", "admin_system")
+
+        keyboards = [menu_section_keyboard(section, is_admin_or_owner=is_admin_or_owner) for section in sections]
+        keyboards.append(community_menu_keyboard(is_random_opted_in=False))
+        keyboards.append(birthday_menu_keyboard())
+
+        for keyboard in keyboards:
             for row in keyboard.inline_keyboard:
                 for button in row:
                     data = button.callback_data or ""
@@ -192,6 +204,8 @@ class HelpTextHtmlTests(unittest.TestCase):
             "top": "top",
             "split_bill": "split_bill",
             "donate": "donate",
+            "birthday": "birthday",
+            "notification_mode": "notification_mode",
         }
         excluded = {"start", "menu"}
         for spec in COMMAND_SPECS:
@@ -246,10 +260,13 @@ class MenuKeyboardRegressionTests(unittest.TestCase):
 
     def test_start_menu_keyboard_opens_menu(self):
         keyboard = start_menu_keyboard()
-        button = keyboard.inline_keyboard[0][0]
+        labels = [button.text for row in keyboard.inline_keyboard for button in row]
+        callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
 
-        self.assertEqual(button.text, "🏠 Открыть меню")
-        self.assertEqual(button.callback_data, "menu_home")
+        self.assertIn("📣 Афиша", labels)
+        self.assertIn("🏠 Открыть меню", labels)
+        self.assertIn("menu_action_digest", callbacks)
+        self.assertIn("menu_home", callbacks)
 
 
 if __name__ == "__main__":

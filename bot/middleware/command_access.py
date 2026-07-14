@@ -22,6 +22,7 @@ from bot.database import (
 )
 from bot.db.usage import usage_date_key
 from bot.utils.roles import is_admin, is_owner
+from bot.utils.design import brand_voice
 from bot.utils.telegram_errors import safe_callback_answer
 
 logger = logging.getLogger(__name__)
@@ -179,7 +180,7 @@ class CommandAccessMiddleware(BaseMiddleware):
                 action=action,
                 reply_target=reply_target,
                 is_callback=is_callback,
-                limit_text="⚠️ Дневной лимит команд для админа исчерпан. Попробуйте снова завтра.",
+                limit_text=brand_voice("command_limit_admin"),
                 skip_daily_limit=skip_daily_limit,
             )
 
@@ -204,7 +205,7 @@ class CommandAccessMiddleware(BaseMiddleware):
                 action=action,
                 reply_target=reply_target,
                 is_callback=is_callback,
-                limit_text="⚠️ Дневной лимит команд исчерпан. Попробуйте снова завтра.",
+                limit_text=brand_voice("command_limit_member"),
                 skip_daily_limit=skip_daily_limit,
             )
 
@@ -218,7 +219,7 @@ class CommandAccessMiddleware(BaseMiddleware):
                 )
                 await self._reply(
                     reply_target,
-                    "❌ До подтверждения доступа вам доступна только команда /start.",
+                    "❌ До одобрения доступна только команда /start.",
                 )
                 return
 
@@ -232,7 +233,7 @@ class CommandAccessMiddleware(BaseMiddleware):
             action=action,
             reply_target=reply_target,
             is_callback=is_callback,
-            limit_text="⚠️ Дневной лимит команд до одобрения исчерпан. Попробуйте снова завтра.",
+            limit_text=brand_voice("command_limit_outsider"),
             skip_daily_limit=skip_daily_limit,
         )
 

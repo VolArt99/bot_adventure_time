@@ -177,7 +177,7 @@ async def finalize_event_creation(
         topic_name=topic_name,
         organizer_mention=organizer_mention,
         responsible_mention=responsible_mention,
-        show_cta=False,
+        show_cta=True,
     )
 
     try:

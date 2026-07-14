@@ -28,14 +28,14 @@ async def cmd_birthday(message: Message):
     if not stored:
         await message.answer(
             "🎂 День рождения ещё не указан.\n"
-            "Добавьте: <code>/set_birthday ДД.ММ</code> (год не нужен).\n"
+            "Добавь: <code>/set_birthday ДД.ММ</code> (год не нужен).\n"
             "Удалить: /clear_birthday",
             parse_mode="HTML",
         )
         return
     display = format_birthday_display(stored)
     await message.answer(
-        f"🎂 Ваш день рождения: <b>{display}</b>\n"
+        f"🎂 Твой день рождения: <b>{display}</b>\n"
         f"{brand_voice('birthday_saved_hint')}",
         parse_mode="HTML",
     )

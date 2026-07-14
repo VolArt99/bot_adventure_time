@@ -22,7 +22,7 @@ Definition of Done:
 ## Продуктовый контекст
 
 Бот для приватного Telegram-сообщества (супергруппа с Topics / форум).
-Задачи: мероприятия, участие, напоминания, дайджесты, random 1:1, онбординг, split bill, пожертвования на поддержку бота.
+Задачи: мероприятия, участие, напоминания, дайджесты, случайные встречи 1:1, онбординг, split bill («скинуться»), пожертвования на поддержку бота.
 
 ### Пользовательские потоки
 1. `/start` → онбординг → одобрение владельцем (`approve_user_*`) → invite-ссылка → вход в группу → запись в `approved_members`.
@@ -66,7 +66,7 @@ Definition of Done:
 - `config.py` — env, роли, лимиты, тихие часы, attendance, мониторинг, heartbeat
 - `commands.py` — реестр `COMMAND_SPECS`
 - `database.py`, `database_pg.py` — фасады → `bot/db/`
-- `db/` — PostgreSQL-слой по доменам: `schema.py`, `events.py`, `participants.py`, `attendance.py`, `split_bill.py`, `subscriptions.py`, `usage.py`, `ids.py`, `pending_notifications.py`, `maintenance.py`, …
+- `db/` — PostgreSQL-слой по доменам: `schema.py`, `events.py`, `participants.py`, `attendance.py`, `split_bill.py`, `subscriptions.py`, `notification_settings.py`, `usage.py`, `ids.py`, `pending_notifications.py`, `maintenance.py`, …
 - `healthcheck.py` — CLI для Docker healthcheck
 - `db_pool.py` — asyncpg pool
 - `fsm_storage_pg.py` — FSM в таблице `fsm_states`
@@ -107,12 +107,13 @@ Definition of Done:
 - `WIZARD_PROMPTS` — шаги мастера `/create_event`
 - `brand_voice(key)`, `season_copy(key)`, `wizard_prompt(key)`
 
-Тон: приключенческий (Adventure Time community), без персонажей мультсериала.
+Тон: приключенческий (Adventure Time community), без персонажей мультсериала. **Единый регистр «ты»** во всех пользовательских текстах.
 
 При изменении UX:
-1. Обновить словари в `design.py`
+1. Обновить словари в `design.py` (`BRAND_VOICE` — не хардкод в handlers)
 2. Синхронизировать `common_feature/views.py`, `texts.py`, help
 3. Обновить тесты в `tests/test_help_text_html.py`, `tests/test_texts.py`
+4. Обновить `README.md` и этот `промт.txt`
 
 ---
 
@@ -123,8 +124,8 @@ Definition of Done:
 3. Участие: в путь / резерв / в другой раз; «ищу попутку»; подтверждение за 24 ч
 4. Карпулинг
 5. Напоминания + restore после рестарта
-6. Дайджесты и подписки
-7. Random 1:1
+6. Дайджесты, подписки и **режим ЛС-уведомлений** (`all` / `mine` / `off`)
+7. Случайные встречи 1:1 (toggle в меню Комьюнити)
 8. Split bill (автоподтягивание going, напоминание должникам)
 9. `/donate` (URL-кнопки Сбер / Т-Банк)
 10. Копия прошлого события из `/my_events`
@@ -136,28 +137,49 @@ Definition of Done:
 
 ## Актуальные UX-детали
 
-- Кнопки карточки: `✅ В путь!`, `⏳ В резерве`, `❌ В другой раз`, `🚗 Ищу попутку`
-- За `ATTENDANCE_CONFIRM_HOURS` (по умолчанию 24) до события — ЛС «всё ещё иду» с кнопками confirm/decline
+### Меню (`/menu`)
+- Шапка: **«Центр приключений»** + сезонный слоган; без длинного блока описаний кнопок.
+- Разделы: 🎉 События · 🧾 Скинуться · 🔔 Уведомления · 🤝 Комьюнити · 🔴 Админ (3 подраздела: Люди / Контент / Система).
+- Подменю: одна кнопка **↩️ Назад**; `menu_cmd_*` — подсказки с префиксом **⌨️**; `menu_action_*` — реальные действия.
+- Уведомления: подписки + **«🔕 Режим уведомлений»** (`notify_all` / `notify_mine` / `notify_off`).
+
+### Участие и карточки
+- Кнопки карточки: `✅ В путь!`, `⏳ В резерве`, `❌ В другой раз`, `🚗 Ищу попутку`; в группе — **🤖 Открыть в ЛС**.
+- Резерв: toast «В резерве · ты №N…»; продвижение из резерва — брендовое ЛС (`waitlist_promoted`).
+- Групповая карточка: CTA внизу «Запишись: В путь · Резерв · В другой раз» (`show_cta=True`).
+- Карпулинг в ЛС: брендовые формулировки (`carpool_driver_seats`, `carpool_choose_driver` и т.д.).
+- Неодобренный: alert `approval_required` при callback в группе.
+
+### Онбординг
+- Краткие правила + «📜 Полные правила» (структурированный мягкий текст).
+- После одобрения: чеклист + кнопки **📣 Афиша** и **🏠 Открыть меню**.
+- Одобрение: `🎉🗺️ Дверь открыта!`; контакт капитана на «ты».
+
+### Прочее
+- За `ATTENDANCE_CONFIRM_HOURS` (по умолчанию 24) до события — ЛС «Ты всё ещё идёшь?» с кнопками confirm/decline
 - `/my_events`: «📋 Копия #ID» → мастер создания с предзаполнением
 - Превью: кнопка `🗺️ Публикуем!`
-- `/menu`: сезонная шапка, слоган «Куда отправимся сегодня?»; `/help` и кнопки меню синхронизированы с `commands.py`
-- Карточка мероприятия: **Hero + детали** (без дублирования категорий/цены); погода в день события; блок карпулинга с ride_seeker
-- Быстрые шаблоны: выбор «оставить из шаблона» / «ввести своё» для названия и описания
+- `/help` и кнопки меню синхронизированы с `commands.py`
+- Карточка мероприятия: **Hero + детали**; погода в день события; Google Календарь (не «GCal»)
+- Быстрые шаблоны: «оставить из шаблона» / «ввести своё»
 - Мастер событий: «↩️ Назад» на шагах темы, категорий и превью
-- Split-bill: `money_collection_line` + «осталось собрать X ₽» в шапке + чек-лист ✅/⏳ + «🔔 Напомнить должникам»
-- `/donate` в разделе «Помощь» меню + команда; outsider: `start,donate`
+- Split-bill: `money_collection_line` + «осталось собрать X ₽»; отмена — `split_bill_cancel`
+- Комьюнити: toggle «Случайные 1:1 · вкл/выкл»; день рождения — одна кнопка → подменю
+- Дневной лимит: `command_limit_member` / `command_limit_admin` в `BRAND_VOICE`
+- `/donate` в разделе «Помощь»; outsider: `start,donate`
 - `@username` в admin-командах — резолв через БД + approved members
 - `/send_event_card` — короткое сообщение со ссылкой, не дубль карточки
-- `/send_events_list`, `/digest`, `/my_digest` — учитывают `period_end` (активный период); ссылки `t.me/c/<chat>/<thread>/<msg>` для Topics
+- `/send_events_list`, `/digest`, `/my_digest` — учитывают `period_end`; ссылки `t.me/c/<chat>/<thread>/<msg>`
 - `/random_pairs` — общая карточка в topic, без ЛС участникам
 - FSM в ЛС: `answer_private_intermediate` / `answer_private_final`
 - Callback policy: `CALLBACK_DELETE_WIZARD_MESSAGE` только для wizard
-- ЛС в тихие часы ставятся в очередь `pending_notifications` и flush после `QUIET_HOURS_END`
+- ЛС в тихие часы → `pending_notifications` → flush после `QUIET_HOURS_END`
+- Push подписчикам: `category_notify` + фильтр `notification_kind` (`broadcast` / `personal`)
 - Участники: UNIQUE + capacity в SQL; ID через sequences
 - Явка: сводка в `/my_events` + кнопка «✅ Явка»
 - Empty-alert организатору при 0 участниках за 24ч; monthly re-engage owner 1-го числа
 - Дни рождения: set/birthday/clear + daily post в «Общение и не только»
-- Правила: `get_group_rules_text()` с `OWNER_CONTACT`
+- Правила: `get_group_rules_text()` с `OWNER_CONTACT`, мягкая структура
 
 ---
 
@@ -246,6 +268,7 @@ Cron-пример: `deploy/backup-cron.example`, retention: `BACKUP_RETENTION_DA
 
 ## Changelog (кратко, для ориентира)
 
+- **2026-07 UX/UI polish:** голос «ты»; «Центр приключений»; «Скинуться»; режим уведомлений UI+фильтр; админ-меню 3 уровня; random 1:1 toggle; резерв №N; CTA в карточках; карпулинг/онбординг/правила; ⌨️ подсказки-команды; «Открыть в ЛС»
 - **2026-07 reliability/UX:** pending_notifications queue; UNIQUE participants + sequences; attendance UI; empty-alert; monthly reengage; birthdays in community topic; FSM cleanup; split bill remaining ₽; callback_rate_limit; get_group_rules_text(OWNER_CONTACT)
 - **2026-07 безопасность:** approved_members отдельно от Telegram-группы; HTML-escape split bill; decline_* + резерв; IDOR myevent; pg_hba; backup chmod 600; menu_cmd policy; safe callback parse
 - `bot/db/` вместо монолита `database_pg.py`

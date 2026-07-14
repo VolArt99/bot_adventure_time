@@ -80,7 +80,16 @@ from .participants import (
     set_passenger,
     toggle_ride_seeker,
 )
-from .random_meeting import get_random_meeting_opt_in_users, set_random_meeting_opt_in
+from .notification_settings import (
+    get_user_notification_settings,
+    set_user_notification_settings,
+    should_deliver_notification,
+)
+from .random_meeting import (
+    get_random_meeting_opt_in_users,
+    is_random_meeting_opt_in,
+    set_random_meeting_opt_in,
+)
 from .schema import init_db
 from .split_bill import (
     add_split_bill_participant,
@@ -181,12 +190,14 @@ __all__ = [
     "get_user_category_subscriptions",
     "get_user_daily_command_count",
     "get_user_events",
+    "get_user_notification_settings",
     "get_user_id_by_username",
     "get_user_stats",
     "get_users_subscribed_to_categories",
     "increment_user_daily_command_count",
     "reset_user_daily_command_count",
     "init_db",
+    "is_random_meeting_opt_in",
     "is_member_approved",
     "mark_pending_notification_failed",
     "mark_pending_notification_sent",
@@ -207,8 +218,10 @@ __all__ = [
     "set_driver",
     "set_event_responsible",
     "set_passenger",
+    "set_user_notification_settings",
     "set_random_meeting_opt_in",
     "set_user_category_subscriptions",
+    "should_deliver_notification",
     "sync_topics_from_config",
     "toggle_ride_seeker",
     "update_event",

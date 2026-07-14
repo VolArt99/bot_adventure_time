@@ -101,7 +101,7 @@ class CommonCommandFlowTests(unittest.IsolatedAsyncioTestCase):
         await common.cmd_menu(message)
 
         args, kwargs = message.answer.await_args
-        self.assertIn("Adventure Time Control Center", args[0])
+        self.assertIn("Центр приключений", args[0])
         self.assertEqual(kwargs["reply_markup"].inline_keyboard[0][0].callback_data, "menu_events")
 
         
@@ -122,8 +122,10 @@ class CommonCommandFlowTests(unittest.IsolatedAsyncioTestCase):
             await common.cmd_start(message)
 
         args, kwargs = message.answer.await_args
-        self.assertIn("меню", args[0].lower())
-        self.assertEqual(kwargs["reply_markup"].inline_keyboard[0][0].callback_data, "menu_home")
+        self.assertIn("афиш", args[0].lower())
+        callbacks = [btn.callback_data for row in kwargs["reply_markup"].inline_keyboard for btn in row]
+        self.assertIn("menu_home", callbacks)
+        self.assertIn("menu_action_digest", callbacks)
 
         
 class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
@@ -179,7 +181,7 @@ class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
         owner_callback.bot.send_message.assert_awaited_once()
         args, kwargs = owner_callback.bot.send_message.await_args
         self.assertEqual(args[0], 42)
-        self.assertIn('напишите капитану: <a href="https://t.me/source_owner">@source_owner</a>', args[1])
+        self.assertIn('напиши капитану: <a href="https://t.me/source_owner">@source_owner</a>', args[1])
         self.assertEqual(kwargs["parse_mode"], "HTML")
 
 
