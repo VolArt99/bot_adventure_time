@@ -120,7 +120,7 @@ class HelpTextHtmlTests(unittest.TestCase):
         rows = [[button.text for button in row] for row in keyboard.inline_keyboard]
 
         self.assertEqual(rows[0], ["✅ В путь!", "⏳ В резерве"])
-        self.assertEqual(rows[1], ["❌ В другой раз"])
+        self.assertEqual(rows[1], ["❌ Снять запись"])
         self.assertEqual(rows[2], ["👥 Гости"])
         self.assertEqual(rows[3], ["🚗 Водитель", "👥 Попутка"])
         self.assertNotIn(["🗑 Удалить"], rows)
@@ -147,7 +147,7 @@ class HelpTextHtmlTests(unittest.TestCase):
     def test_event_card_keyboard_personalized_for_going(self):
         keyboard = event_actions(42, participation_status="going")
         rows = [[button.text for button in row] for row in keyboard.inline_keyboard]
-        self.assertEqual(rows[0], ["❌ Снять запись"])
+        self.assertEqual(rows[0], ["⏳ В резерв", "❌ Снять запись"])
         self.assertEqual(rows[1], ["👥 Гости"])
 
     def test_help_mentions_guests_button(self):

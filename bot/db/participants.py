@@ -308,8 +308,122 @@ async def toggle_ride_seeker(event_id: int, user_id: int) -> str:
     return "added" if created else "denied"
 
 
-async def move_from_waitlist(event_id: int) -> Optional[int]:
-    """Перемещает первого из резерва в основной список."""
+async def promote_user_from_waitlist(event_id: int, user_id: int) -> str:
+    """Переводит пользователя из резерва в основной состав.
+
+    Возвращает: ok | full | not_waitlist
+    """
+    result = await _run_query(
+        f"""
+        UPDATE participants
+        SET status = 'going',
+            guest_count = 0,
+            car_seats = 0,
+            passenger_of = 0
+        WHERE event_id = $event_id
+          AND user_id = $user_id
+          AND status = 'waitlist'
+          AND (
+            COALESCE((SELECT participant_limit FROM events WHERE id = $event_id), 0) <= 0
+            OR (
+                SELECT COALESCE(SUM(1 + COALESCE(guest_count, 0)), 0)::bigint
+                FROM participants
+                WHERE event_id = $event_id
+                  AND status IN ({_MAIN_STATUS_SQL})
+            ) < COALESCE((SELECT participant_limit FROM events WHERE id = $event_id), 0)
+          )
+        RETURNING id
+        """,
+        parameters={
+            "event_id": int(event_id),
+            "user_id": int(user_id),
+        },
+    )
+    if result[0].rows:
+        return "ok"
+
+    current = await _run_query(
+        """
+        SELECT status FROM participants
+        WHERE event_id = $event_id AND user_id = $user_id
+        """,
+        parameters={
+            "event_id": int(event_id),
+            "user_id": int(user_id),
+        },
+    )
+    if not current[0].rows or str(current[0].rows[0].status) != "waitlist":
+        return "not_waitlist"
+    return "full"
+
+
+async def move_user_to_waitlist(event_id: int, user_id: int) -> str:
+    """Переводит участника основного состава в резерв.
+
+    Водитель: пассажиры остаются в основном составе как ``going``.
+    Возвращает: ok | not_main | already_waitlist
+    """
+    current = await _run_query(
+        """
+        SELECT status FROM participants
+        WHERE event_id = $event_id AND user_id = $user_id
+        """,
+        parameters={
+            "event_id": int(event_id),
+            "user_id": int(user_id),
+        },
+    )
+    if not current[0].rows:
+        return "not_main"
+
+    status = str(current[0].rows[0].status)
+    if status == "waitlist":
+        return "already_waitlist"
+    if status not in _MAIN_STATUSES:
+        return "not_main"
+
+    if status == "driver":
+        await _run_query(
+            """
+            UPDATE participants
+            SET status = 'going', passenger_of = 0, car_seats = 0
+            WHERE event_id = $event_id AND passenger_of = $driver_id
+            """,
+            parameters={
+                "event_id": int(event_id),
+                "driver_id": int(user_id),
+            },
+        )
+
+    joined_at = datetime.now(timezone.utc)
+    await _run_query(
+        """
+        UPDATE participants
+        SET status = 'waitlist',
+            guest_count = 0,
+            car_seats = 0,
+            passenger_of = 0,
+            joined_at = $joined_at
+        WHERE event_id = $event_id AND user_id = $user_id
+        """,
+        parameters={
+            "event_id": int(event_id),
+            "user_id": int(user_id),
+            "joined_at": joined_at,
+        },
+    )
+    return "ok"
+
+
+async def move_from_waitlist(
+    event_id: int,
+    exclude_user_id: Optional[int] = None,
+) -> Optional[int]:
+    """Перемещает первого из резерва в основной список.
+
+    ``exclude_user_id`` — не продвигать этого пользователя (например, только что
+    ушедшего из основного состава в резерв).
+    """
     event = await get_event(event_id)
     if not event:
         return None
@@ -320,17 +434,31 @@ async def move_from_waitlist(event_id: int) -> Optional[int]:
         if occupied >= participant_limit:
             return None
 
-    result = await _run_query(
-        """
-        SELECT user_id FROM participants
-        WHERE event_id = $event_id AND status = 'waitlist'
-        ORDER BY joined_at
-        LIMIT 1
-        """,
-        parameters={
-            "event_id": event_id,
-        },
-    )
+    if exclude_user_id is None:
+        result = await _run_query(
+            """
+            SELECT user_id FROM participants
+            WHERE event_id = $event_id AND status = 'waitlist'
+            ORDER BY joined_at
+            LIMIT 1
+            """,
+            parameters={"event_id": event_id},
+        )
+    else:
+        result = await _run_query(
+            """
+            SELECT user_id FROM participants
+            WHERE event_id = $event_id
+              AND status = 'waitlist'
+              AND user_id <> $exclude_user_id
+            ORDER BY joined_at
+            LIMIT 1
+            """,
+            parameters={
+                "event_id": event_id,
+                "exclude_user_id": int(exclude_user_id),
+            },
+        )
 
     if not result[0].rows:
         return None

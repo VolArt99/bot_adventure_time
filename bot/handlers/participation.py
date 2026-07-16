@@ -33,6 +33,8 @@ from bot.database import (
     get_occupied_seats,
     get_ride_seekers,
     move_from_waitlist,
+    move_user_to_waitlist,
+    promote_user_from_waitlist,
     add_driver,
     add_passenger,
     get_drivers_with_passengers,
@@ -206,14 +208,28 @@ async def join_event(callback: CallbackQuery):
         get_participants(event_id, "waitlist"),
         get_occupied_seats(event_id),
     )
-    if event["participant_limit"] and occupied >= event["participant_limit"]:
-        await finalize_callback(callback, "Мест нет. Можешь записаться в резерв", show_alert=True)
-        return
-    if user_id in waitlist:
-        await finalize_callback(callback, "Ты уже в резерве. Откажись от резерва, чтобы записаться", show_alert=True)
-        return
     if user_id in going:
         await finalize_callback(callback, "Ты уже записан", show_alert=True)
+        return
+    if user_id in waitlist:
+        promoted = await promote_user_from_waitlist(event_id, user_id)
+        if promoted == "full":
+            await finalize_callback(callback, "Мест нет. Остаёшься в резерве", show_alert=True)
+            return
+        if promoted != "ok":
+            await finalize_callback(
+                callback,
+                "Не удалось записаться: мест нет или ты уже в списке",
+                show_alert=True,
+            )
+            return
+        await safe_callback_answer(callback, brand_voice("participation_join"))
+        await update_event_message(
+            callback.bot, event_id, event["thread_id"], event["message_id"]
+        )
+        return
+    if event["participant_limit"] and occupied >= event["participant_limit"]:
+        await finalize_callback(callback, "Мест нет. Можешь записаться в резерв", show_alert=True)
         return
     added = await add_participant(event_id, user_id, "going")
     if not added:
@@ -247,11 +263,41 @@ async def waitlist_event(callback: CallbackQuery):
         get_main_participants(event_id),
         get_participants(event_id, "waitlist"),
     )
-    if user_id in going:
-        await finalize_callback(callback, "Ты уже в основном списке", show_alert=True)
-        return
     if user_id in waitlist:
         await finalize_callback(callback, "Ты уже в резерве", show_alert=True)
+        return
+    if user_id in going:
+        switched = await move_user_to_waitlist(event_id, user_id)
+        if switched == "already_waitlist":
+            await finalize_callback(callback, "Ты уже в резерве", show_alert=True)
+            return
+        if switched != "ok":
+            await finalize_callback(callback, "Не удалось перейти в резерв", show_alert=True)
+            return
+        moved_user = await move_from_waitlist(event_id, exclude_user_id=user_id)
+        if moved_user:
+            from bot.utils.notifications import send_private_dm
+
+            await send_private_dm(
+                callback.bot,
+                moved_user,
+                brand_voice("waitlist_promoted").format(title=event["title"]),
+                parse_mode=None,
+                notification_kind="personal",
+            )
+        waitlist_after = await get_participants(event_id, "waitlist")
+        position = (
+            waitlist_after.index(user_id) + 1
+            if user_id in waitlist_after
+            else len(waitlist_after)
+        )
+        await safe_callback_answer(
+            callback,
+            brand_voice("participation_waitlist_position").format(position=position),
+        )
+        await update_event_message(
+            callback.bot, event_id, event["thread_id"], event["message_id"]
+        )
         return
     added = await add_participant(event_id, user_id, "waitlist")
     if not added:

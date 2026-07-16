@@ -242,6 +242,7 @@ class ParticipationTransitionsTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.handlers.participation.get_event", new=AsyncMock(return_value=event)) as get_event,
             patch("bot.handlers.participation.get_main_participants", new=AsyncMock(return_value=[])),
             patch("bot.handlers.participation.get_participants", new=AsyncMock(return_value=[])),
+            patch("bot.handlers.participation.get_occupied_seats", new=AsyncMock(return_value=0)),
             patch("bot.handlers.participation.add_participant", new=AsyncMock(return_value=True)) as add_participant,
             patch("bot.handlers.participation.update_event_message", new=AsyncMock()),
             patch("bot.handlers.participation.safe_callback_answer", new=AsyncMock()),
@@ -256,19 +257,66 @@ class ParticipationTransitionsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Слишком частые", rate_answer.await_args.args[1])
         callback_rate_limit._hits.clear()
 
-    async def test_waitlist_denied_if_already_in_main_list(self):
-        callback = _FakeCallback(user_id=11, data="waitlist_100")
+    async def test_join_promotes_from_waitlist(self):
+        from bot.utils import callback_rate_limit
+
+        callback_rate_limit._hits.clear()
+        callback = _FakeCallback(user_id=11, data="join_100")
+        event = {
+            "id": 100,
+            "status": "active",
+            "participant_limit": 10,
+            "thread_id": 1,
+            "message_id": 2,
+        }
 
         with (
             patch("bot.filters.approved_member.is_member_approved", new=AsyncMock(return_value=True)),
-            patch("bot.handlers.participation.get_event", new=AsyncMock(return_value={"id": 100, "status": "active"})),
+            patch("bot.handlers.participation.get_event", new=AsyncMock(return_value=event)),
+            patch("bot.handlers.participation.get_main_participants", new=AsyncMock(return_value=[])),
+            patch("bot.handlers.participation.get_participants", new=AsyncMock(return_value=[11])),
+            patch("bot.handlers.participation.get_occupied_seats", new=AsyncMock(return_value=5)),
+            patch("bot.handlers.participation.promote_user_from_waitlist", new=AsyncMock(return_value="ok")) as promote,
+            patch("bot.handlers.participation.add_participant", new=AsyncMock()) as add_participant,
+            patch("bot.handlers.participation.update_event_message", new=AsyncMock()),
+            patch("bot.handlers.participation.safe_callback_answer", new=AsyncMock()) as answer,
+        ):
+            await participation.join_event(callback)
+
+        promote.assert_awaited_once_with(100, 11)
+        add_participant.assert_not_awaited()
+        answer.assert_awaited()
+        callback_rate_limit._hits.clear()
+
+    async def test_waitlist_switches_from_main_list(self):
+        from bot.utils import callback_rate_limit
+
+        callback_rate_limit._hits.clear()
+        callback = _FakeCallback(user_id=11, data="waitlist_100")
+        event = {
+            "id": 100,
+            "status": "active",
+            "thread_id": 1,
+            "message_id": 2,
+            "title": "Поход",
+        }
+
+        with (
+            patch("bot.filters.approved_member.is_member_approved", new=AsyncMock(return_value=True)),
+            patch("bot.handlers.participation.get_event", new=AsyncMock(return_value=event)),
             patch("bot.handlers.participation.get_main_participants", new=AsyncMock(return_value=[11])),
-            patch("bot.handlers.participation.get_participants", new=AsyncMock(return_value=[])),
-            patch("bot.handlers.participation.finalize_callback", new=AsyncMock()) as finalize_callback,
+            patch("bot.handlers.participation.get_participants", new=AsyncMock(side_effect=[[], [11]])),
+            patch("bot.handlers.participation.move_user_to_waitlist", new=AsyncMock(return_value="ok")) as move_to_waitlist,
+            patch("bot.handlers.participation.move_from_waitlist", new=AsyncMock(return_value=None)) as move_from_waitlist,
+            patch("bot.handlers.participation.update_event_message", new=AsyncMock()),
+            patch("bot.handlers.participation.safe_callback_answer", new=AsyncMock()) as answer,
         ):
             await participation.waitlist_event(callback)
 
-        finalize_callback.assert_awaited()
+        move_to_waitlist.assert_awaited_once_with(100, 11)
+        move_from_waitlist.assert_awaited_once_with(100, exclude_user_id=11)
+        answer.assert_awaited()
+        callback_rate_limit._hits.clear()
 
     async def test_decline_skips_waitlist_when_user_not_participant(self):
         callback = _FakeCallback(user_id=11, data="decline_100")

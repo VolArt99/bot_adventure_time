@@ -66,7 +66,7 @@ BRAND_VOICE = {
     "event_created": "Новое приключение опубликовано! 🗺️",
     "event_created_private": "🗺️ Приключение в пути! Карточка опубликована в группе.",
     "event_preview_intro": "👀 Вот что получилось — публикуем?",
-    "event_card_cta": "Запишись: В путь · Резерв · В другой раз",
+    "event_card_cta": "Запишись: В путь · Резерв · Снять запись",
     "empty_digest": "📭 Тишина в Ланде Ооо… Запусти своё приключение через /create_event!",
     "digest_title": "Афиша приключений",
     "onboarding_welcome": (
@@ -90,7 +90,7 @@ BRAND_VOICE = {
     "participation_join": "В путь! 🎒",
     "participation_waitlist": "В резерве — жду места ⏳",
     "participation_waitlist_position": "В резерве · ты №{position}. Напишем, если освободится место ⏳",
-    "participation_decline": "В другой раз 👋",
+    "participation_decline": "Запись снята 👋",
     "waitlist_promoted": "Место освободилось — ты в списке идущих на «{title}»! 🎒",
     "split_bill_created": "Чек собран — путь к расчёту открыт! 🧾",
     "split_bill_cancel": "Чек не создан — в другой раз! 🧾",

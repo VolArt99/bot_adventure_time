@@ -40,7 +40,12 @@ def event_actions(
         rows.append([InlineKeyboardButton(text="🤖 Открыть в ЛС", url=bot_start_url)])
 
     if participation_status == "going":
-        rows.append([InlineKeyboardButton(text="❌ Снять запись", callback_data=f"decline_{event_id}")])
+        rows.append(
+            [
+                InlineKeyboardButton(text="⏳ В резерв", callback_data=f"waitlist_{event_id}"),
+                InlineKeyboardButton(text="❌ Снять запись", callback_data=f"decline_{event_id}"),
+            ]
+        )
         rows.append([InlineKeyboardButton(text="👥 Гости", callback_data=f"guests_{event_id}")])
         if carpool_enabled:
             rows.extend(_carpool_rows(event_id))
@@ -60,7 +65,7 @@ def event_actions(
                 InlineKeyboardButton(text="⏳ В резерве", callback_data=f"waitlist_{event_id}"),
             ]
         )
-        rows.append([InlineKeyboardButton(text="❌ В другой раз", callback_data=f"decline_{event_id}")])
+        rows.append([InlineKeyboardButton(text="❌ Снять запись", callback_data=f"decline_{event_id}")])
         # В группе кнопка общая: проверка «ты в списке» — в хендлере.
         rows.append([InlineKeyboardButton(text="👥 Гости", callback_data=f"guests_{event_id}")])
         if carpool_enabled:
