@@ -67,7 +67,7 @@ from .views import (
     build_group_member_bot_access_denied_text,
     build_group_rules_text,
     build_group_rules_full_text,
-    build_help_text,
+    build_help_messages,
     build_main_menu_text,
     build_menu_section_text,
     build_notification_mode_text,
@@ -353,10 +353,8 @@ async def cmd_menu(message: Message):
 @router.message(Command("help"))
 async def cmd_help(message: Message):
     is_admin_or_owner = has_admin_or_owner(message.from_user.id)
-    await message.answer(
-        build_help_text(is_admin_or_owner=is_admin_or_owner),
-        parse_mode="HTML",
-    )
+    for chunk in build_help_messages(is_admin_or_owner=is_admin_or_owner):
+        await message.answer(chunk, parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("menu_action_"))

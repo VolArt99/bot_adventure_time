@@ -91,8 +91,20 @@ class CommonCommandFlowTests(unittest.IsolatedAsyncioTestCase):
 
         await common.cmd_help(message)
 
+        self.assertEqual(message.answer.await_count, 1)
         _, kwargs = message.answer.await_args
         self.assertNotIn("reply_markup", kwargs)
+
+    async def test_admin_help_command_sends_multiple_messages(self):
+        message = _FakeMessage(user_id=12345, text="/help")
+
+        with patch("bot.handlers.common_feature.handlers.has_admin_or_owner", return_value=True):
+            await common.cmd_help(message)
+
+        self.assertGreaterEqual(message.answer.await_count, 2)
+        for call in message.answer.await_args_list:
+            self.assertEqual(call.kwargs.get("parse_mode"), "HTML")
+            self.assertLessEqual(len(call.args[0]), 4096)
 
 
     async def test_menu_command_has_main_menu_markup(self):

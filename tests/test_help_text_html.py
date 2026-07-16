@@ -10,6 +10,7 @@ from bot.handlers.common_feature.views import (
     build_command_action_text,
     build_group_rules_full_text,
     build_group_rules_text,
+    build_help_messages,
     build_help_text,
     build_main_menu_text,
     build_menu_section_text,
@@ -27,6 +28,7 @@ from bot.keyboards import (
     start_menu_keyboard,
 )
 from bot.utils.design import CARD_DIVIDER
+from bot.utils.helpers import TELEGRAM_MAX_MESSAGE_LENGTH
 
 
 class HelpTextHtmlTests(unittest.TestCase):
@@ -37,6 +39,21 @@ class HelpTextHtmlTests(unittest.TestCase):
         self.assertNotIn("<id>", text)
         self.assertIn("&lt;текст&gt;", text)
         self.assertIn("&lt;id&gt;", text)
+
+    def test_help_messages_fit_telegram_limit(self):
+        for is_admin in (False, True):
+            messages = build_help_messages(is_admin_or_owner=is_admin)
+            self.assertGreaterEqual(len(messages), 1)
+            for chunk in messages:
+                self.assertLessEqual(
+                    len(chunk),
+                    TELEGRAM_MAX_MESSAGE_LENGTH,
+                    msg=f"help chunk too long ({len(chunk)}) for admin={is_admin}",
+                )
+        admin_messages = build_help_messages(is_admin_or_owner=True)
+        self.assertGreaterEqual(len(admin_messages), 2)
+        self.assertIn("Админ · команды", admin_messages[0])
+        self.assertIn("Команды участника", "\n".join(admin_messages[1:]))
 
     def test_help_text_mentions_visual_menu(self):
         text = build_help_text(is_admin_or_owner=False)

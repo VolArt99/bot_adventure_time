@@ -16,6 +16,7 @@ from bot.utils.design import (
     seasonal_menu_label,
     step_badge,
 )
+from bot.utils.helpers import split_telegram_text
 
 
 def build_onboarding_welcome_text() -> str:
@@ -467,8 +468,18 @@ def build_admin_help_text() -> str:
     return "\n".join(lines)
 
 
+def build_help_messages(*, is_admin_or_owner: bool) -> list[str]:
+    """Справка частями ≤ лимита Telegram (4096), чтобы /help не падал у админов."""
+    parts: list[str] = []
+    if is_admin_or_owner:
+        parts.append(build_admin_help_text())
+    parts.append(build_member_help_text())
+
+    messages: list[str] = []
+    for part in parts:
+        messages.extend(split_telegram_text(part))
+    return messages
+
+
 def build_help_text(*, is_admin_or_owner: bool) -> str:
-    member_help = build_member_help_text()
-    if not is_admin_or_owner:
-        return member_help
-    return build_admin_help_text() + "\n" + member_help
+    return "\n".join(build_help_messages(is_admin_or_owner=is_admin_or_owner))

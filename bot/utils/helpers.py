@@ -11,6 +11,42 @@ logger = logging.getLogger(__name__)
 USER_MENTION_CACHE_TTL_SECONDS = 3600
 _user_mentions_cache: dict[int, tuple[float, str]] = {}
 _TELEGRAM_USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{5,32}$")
+TELEGRAM_MAX_MESSAGE_LENGTH = 4096
+
+
+def split_telegram_text(text: str, *, limit: int = TELEGRAM_MAX_MESSAGE_LENGTH) -> list[str]:
+    """Разбивает длинный текст на части ≤ limit (лимит Telegram: 4096).
+
+    Режет по строкам, чтобы не ломать HTML-разметку посередине тега.
+    """
+    if not text:
+        return []
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for line in text.split("\n"):
+        addition = len(line) + (1 if current else 0)
+        if current and current_len + addition > limit:
+            chunks.append("\n".join(current))
+            current = [line]
+            current_len = len(line)
+            continue
+        if not current and len(line) > limit:
+            start = 0
+            while start < len(line):
+                chunks.append(line[start : start + limit])
+                start += limit
+            continue
+        current.append(line)
+        current_len += addition
+
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
 
 
 def build_event_message_link(
