@@ -8,6 +8,92 @@ from .ids import next_id
 from ._core import _run_execute, _run_query
 
 _MAIN_STATUSES = ("going", "driver", "passenger", "ride_seeker")
+_MAIN_STATUS_SQL = "'going', 'driver', 'passenger', 'ride_seeker'"
+
+
+async def get_occupied_seats(event_id: int) -> int:
+    """Сколько мест занято основным составом (участник + гости)."""
+    result = await _run_query(
+        f"""
+        SELECT COALESCE(SUM(1 + COALESCE(guest_count, 0)), 0)::bigint AS occupied
+        FROM participants
+        WHERE event_id = $event_id
+          AND status IN ({_MAIN_STATUS_SQL})
+        """,
+        parameters={"event_id": int(event_id)},
+    )
+    if not result[0].rows:
+        return 0
+    return int(result[0].rows[0].occupied or 0)
+
+
+async def get_main_guest_counts(event_id: int) -> Dict[int, int]:
+    """user_id → число гостей для основного состава."""
+    result = await _run_query(
+        f"""
+        SELECT user_id, COALESCE(guest_count, 0)::bigint AS guest_count
+        FROM participants
+        WHERE event_id = $event_id
+          AND status IN ({_MAIN_STATUS_SQL})
+        """,
+        parameters={"event_id": int(event_id)},
+    )
+    return {
+        int(row.user_id): int(row.guest_count or 0)
+        for row in result[0].rows
+        if int(row.guest_count or 0) > 0
+    }
+
+
+async def set_participant_guest_count(event_id: int, user_id: int, guest_count: int) -> str:
+    """
+    Устанавливает число гостей у участника основного состава.
+
+    Возвращает: ok | not_participant | full | invalid
+    """
+    if guest_count < 0:
+        return "invalid"
+
+    result = await _run_query(
+        """
+        SELECT status, COALESCE(guest_count, 0)::bigint AS guest_count
+        FROM participants
+        WHERE event_id = $event_id AND user_id = $user_id
+        """,
+        parameters={"event_id": int(event_id), "user_id": int(user_id)},
+    )
+    if not result[0].rows:
+        return "not_participant"
+
+    status = str(result[0].rows[0].status)
+    if status not in _MAIN_STATUSES:
+        return "not_participant"
+
+    old_guests = int(result[0].rows[0].guest_count or 0)
+    event = await get_event(event_id)
+    if not event:
+        return "invalid"
+
+    limit = int(event.get("participant_limit") or 0)
+    if limit > 0 and guest_count != old_guests:
+        occupied = await get_occupied_seats(event_id)
+        new_occupied = occupied - old_guests + guest_count
+        if new_occupied > limit:
+            return "full"
+
+    await _run_query(
+        """
+        UPDATE participants
+        SET guest_count = $guest_count
+        WHERE event_id = $event_id AND user_id = $user_id
+        """,
+        parameters={
+            "event_id": int(event_id),
+            "user_id": int(user_id),
+            "guest_count": int(guest_count),
+        },
+    )
+    return "ok"
 
 
 async def add_participant(
@@ -24,19 +110,19 @@ async def add_participant(
 
     if enforce_capacity:
         result = await _run_query(
-            """
+            f"""
             INSERT INTO participants (
-                id, event_id, user_id, status, car_seats, passenger_of, joined_at
+                id, event_id, user_id, status, car_seats, passenger_of, guest_count, joined_at
             )
             SELECT
-                $id, $event_id, $user_id, $status, $car_seats, $passenger_of, $joined_at
+                $id, $event_id, $user_id, $status, $car_seats, $passenger_of, 0, $joined_at
             WHERE
                 COALESCE((SELECT participant_limit FROM events WHERE id = $event_id), 0) <= 0
                 OR (
-                    SELECT COUNT(*)::bigint
+                    SELECT COALESCE(SUM(1 + COALESCE(guest_count, 0)), 0)::bigint
                     FROM participants
                     WHERE event_id = $event_id
-                      AND status IN ('going', 'driver', 'passenger', 'ride_seeker')
+                      AND status IN ({_MAIN_STATUS_SQL})
                 ) < COALESCE((SELECT participant_limit FROM events WHERE id = $event_id), 0)
             ON CONFLICT (event_id, user_id) DO NOTHING
             RETURNING id
@@ -55,9 +141,9 @@ async def add_participant(
         result = await _run_query(
             """
             INSERT INTO participants (
-                id, event_id, user_id, status, car_seats, passenger_of, joined_at
+                id, event_id, user_id, status, car_seats, passenger_of, guest_count, joined_at
             ) VALUES (
-                $id, $event_id, $user_id, $status, $car_seats, $passenger_of, $joined_at
+                $id, $event_id, $user_id, $status, $car_seats, $passenger_of, 0, $joined_at
             )
             ON CONFLICT (event_id, user_id) DO NOTHING
             RETURNING id
@@ -214,8 +300,8 @@ async def toggle_ride_seeker(event_id: int, user_id: int) -> str:
         return "denied"
     participant_limit = event.get("participant_limit") or 0
     if participant_limit > 0:
-        going = await get_main_participants(event_id)
-        if len(going) >= participant_limit:
+        occupied = await get_occupied_seats(event_id)
+        if occupied >= participant_limit:
             return "full"
 
     created = await add_participant(event_id, user_id, "ride_seeker")
@@ -230,8 +316,8 @@ async def move_from_waitlist(event_id: int) -> Optional[int]:
 
     participant_limit = event.get("participant_limit") or 0
     if participant_limit > 0:
-        going = await get_main_participants(event_id)
-        if len(going) >= participant_limit:
+        occupied = await get_occupied_seats(event_id)
+        if occupied >= participant_limit:
             return None
 
     result = await _run_query(
@@ -254,7 +340,7 @@ async def move_from_waitlist(event_id: int) -> Optional[int]:
     await _run_query(
         """
         UPDATE participants
-        SET status = 'going'
+        SET status = 'going', guest_count = 0
         WHERE event_id = $event_id AND user_id = $user_id
         """,
         parameters={

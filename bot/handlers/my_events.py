@@ -16,6 +16,7 @@ from bot.database import (
     get_event,
     get_participants,
     get_main_participants,
+    get_main_guest_counts,
     get_topic_name_by_thread_id,
     set_event_responsible,
     set_driver,
@@ -223,9 +224,10 @@ async def show_my_event(callback: CallbackQuery):
         await finalize_callback(callback, "Нет доступа к этому мероприятию", show_alert=True)
         return
 
-    going, waitlist = await asyncio.gather(
+    going, waitlist, guest_counts = await asyncio.gather(
         get_main_participants(event_id),
         get_participants(event_id, "waitlist"),
+        get_main_guest_counts(event_id),
     )
 
     user_id = callback.from_user.id
@@ -252,6 +254,7 @@ async def show_my_event(callback: CallbackQuery):
         responsible_mention=responsible_mention,
         show_event_id=can_manage,
         show_cta=False,
+        guest_counts=guest_counts,
     )
     if can_manage:
         summary = await get_attendance_summary(event_id)

@@ -8,6 +8,7 @@ from .subscriptions import get_user_category_subscriptions
 from ._core import (
     _event_matches_period_filter,
     _normalize_row,
+    _parse_event_datetime,
     _period_to_days,
     _run_query,
 )
@@ -22,13 +23,13 @@ async def create_event(event_data: Dict[str, Any]) -> int:
         """
         INSERT INTO events (
             id, title, description, date_time, duration_minutes, period_end,
-            location,
+            location, link,
             price_total, price_per_person, participant_limit,
             thread_id, message_id, creator_id,
             responsible_id, weather_info, carpool_enabled, category, created_at
         ) VALUES (
             $id, $title, $description, $date_time, $duration_minutes, $period_end,
-            $location,
+            $location, $link,
             $price_total, $price_per_person, $participant_limit,
             $thread_id, $message_id, $creator_id,
             $responsible_id, $weather_info, $carpool_enabled, $category, $created_at
@@ -42,6 +43,7 @@ async def create_event(event_data: Dict[str, Any]) -> int:
             "duration_minutes": event_data.get("duration_minutes") or 0,
             "period_end": event_data.get("period_end") or "",
             "location": event_data.get("location", ""),
+            "link": event_data.get("link") or "",
             "price_total": event_data.get("price_total") or 0.0,
             "price_per_person": event_data.get("price_per_person") or 0.0,
             "participant_limit": event_data.get("participant_limit") or 0,
@@ -96,7 +98,7 @@ async def update_event(event_id: int, fields: Dict[str, Any]) -> bool:
     """Обновляет поля мероприятия. Возвращает False, если событие не найдено."""
     allowed = {
         "title", "description", "date_time", "duration_minutes", "period_end",
-        "location", "price_total", "price_per_person", "participant_limit",
+        "location", "link", "price_total", "price_per_person", "participant_limit",
         "thread_id", "weather_info", "carpool_enabled", "category",
     }
     updates = {key: value for key, value in fields.items() if key in allowed}
@@ -123,6 +125,40 @@ async def get_active_events() -> List[Dict]:
     )
 
     return [_normalize_row(row) for row in result[0].rows]
+
+
+async def get_refreshable_event_cards(now: datetime | None = None) -> List[Dict]:
+    """
+    Активные мероприятия с опубликованной карточкой, которые ещё актуальны:
+    - разовые: дата старта ещё не наступила;
+    - с периодом: period_end ещё в будущем.
+    """
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+
+    events: List[Dict] = []
+    for event in await get_active_events():
+        if not event.get("message_id"):
+            continue
+
+        period_end_dt = _parse_event_datetime(event.get("period_end"))
+        if period_end_dt is not None:
+            if period_end_dt.tzinfo is None:
+                period_end_dt = period_end_dt.replace(tzinfo=timezone.utc)
+            if period_end_dt >= current:
+                events.append(event)
+            continue
+
+        start_dt = _parse_event_datetime(event.get("date_time"))
+        if start_dt is None:
+            continue
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        if start_dt >= current:
+            events.append(event)
+
+    return events
 
 
 async def cancel_event(event_id: int) -> None:

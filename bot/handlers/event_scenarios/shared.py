@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime
+import re
+from datetime import date, datetime, time
 
 import pytz
 from aiogram.fsm.context import FSMContext
@@ -23,11 +24,15 @@ TZ = pytz.timezone(TIMEZONE)
 class CreateEvent(StatesGroup):
     title = State()
     description = State()
-    datetime = State()
+    date = State()
+    time = State()
     period_mode = State()
-    period_end = State()
+    period_end_date = State()
+    period_end_time = State()
     duration = State()
+    duration_unit = State()
     location = State()
+    link = State()
     price_mode = State()
     price = State()
     limit = State()
@@ -39,21 +44,25 @@ class CreateEvent(StatesGroup):
 
 
 EVENT_STEP_META = {
-    CreateEvent.title.state: (1, 13, "📝 Название"),
-    CreateEvent.description.state: (2, 13, "📄 Сюжет"),
-    CreateEvent.datetime.state: (3, 13, "🗓 Выезд"),
-    CreateEvent.period_mode.state: (4, 13, "📆 Повтор"),
-    CreateEvent.period_end.state: (5, 13, "📆 Финал"),
-    CreateEvent.duration.state: (6, 13, "⏱ Длительность"),
-    CreateEvent.location.state: (7, 13, "📍 Маршрут"),
-    CreateEvent.price_mode.state: (8, 13, "💰 Расходы"),
-    CreateEvent.price.state: (9, 13, "💰 Сумма"),
-    CreateEvent.limit.state: (10, 13, "👥 Команда"),
-    CreateEvent.carpool.state: (11, 13, "🚗 Попутка"),
-    CreateEvent.responsible.state: (12, 13, "🧩 Ответственный"),
-    CreateEvent.thread.state: (13, 13, "🗂 Публикация"),
-    CreateEvent.category.state: (13, 13, "📂 Направление"),
-    CreateEvent.preview.state: (13, 13, "👀 Превью"),
+    CreateEvent.title.state: (1, 16, "📝 Название"),
+    CreateEvent.description.state: (2, 16, "📄 Сюжет"),
+    CreateEvent.date.state: (3, 16, "📅 Дата"),
+    CreateEvent.time.state: (4, 16, "🕒 Время"),
+    CreateEvent.period_mode.state: (5, 16, "📆 Повтор"),
+    CreateEvent.period_end_date.state: (6, 16, "📆 Дата конца"),
+    CreateEvent.period_end_time.state: (7, 16, "🕒 Время конца"),
+    CreateEvent.duration.state: (8, 16, "⏱ Длительность"),
+    CreateEvent.duration_unit.state: (8, 16, "⏱ Длительность"),
+    CreateEvent.location.state: (9, 16, "📍 Маршрут"),
+    CreateEvent.link.state: (10, 16, "🔗 Ссылка"),
+    CreateEvent.price_mode.state: (11, 16, "💰 Расходы"),
+    CreateEvent.price.state: (12, 16, "💰 Сумма"),
+    CreateEvent.limit.state: (13, 16, "👥 Команда"),
+    CreateEvent.carpool.state: (14, 16, "🚗 Попутка"),
+    CreateEvent.responsible.state: (15, 16, "🧩 Ответственный"),
+    CreateEvent.thread.state: (16, 16, "🗂 Публикация"),
+    CreateEvent.category.state: (16, 16, "📂 Направление"),
+    CreateEvent.preview.state: (16, 16, "👀 Превью"),
 }
 
 
@@ -67,14 +76,48 @@ def event_step_prompt(state_name: str, text: str) -> str:
 
 
 async def parse_datetime(text: str) -> datetime | None:
+    """Парсит ДД.ММ.ГГГГ ЧЧ:ММ; дата в прошлом → None."""
     try:
-        dt = datetime.strptime(text, "%d.%m.%Y %H:%M")
+        dt = datetime.strptime(text.strip(), "%d.%m.%Y %H:%M")
         dt = TZ.localize(dt)
         if dt < datetime.now(TZ):
             return None
         return dt
     except ValueError:
         return None
+
+
+def parse_date_only(text: str) -> date | None:
+    """Парсит дату ДД.ММ.ГГГГ."""
+    try:
+        return datetime.strptime(text.strip(), "%d.%m.%Y").date()
+    except ValueError:
+        return None
+
+
+def parse_time_only(text: str) -> time | None:
+    """Парсит время ЧЧ:ММ."""
+    try:
+        return datetime.strptime(text.strip(), "%H:%M").time()
+    except ValueError:
+        return None
+
+
+def combine_local_datetime(day: date, clock: time) -> datetime:
+    """Собирает aware-datetime в таймзоне бота."""
+    return TZ.localize(datetime.combine(day, clock))
+
+
+def normalize_event_link(text: str) -> str | None:
+    """Нормализует URL; пустая строка → None; без схемы добавляет https://."""
+    raw = (text or "").strip()
+    if not raw or raw.lower() in {"пропустить", "skip", "-"}:
+        return None
+    if not re.match(r"^https?://", raw, flags=re.IGNORECASE):
+        raw = f"https://{raw}"
+    if not re.match(r"^https?://[^\s]+\.[^\s]+", raw, flags=re.IGNORECASE):
+        return None
+    return raw
 
 
 async def build_event_payload(
@@ -99,6 +142,7 @@ async def build_event_payload(
         "duration_minutes": data.get("duration_minutes"),
         "period_end": data.get("period_end"),
         "location": data.get("location"),
+        "link": data.get("link") or "",
         "price_total": data.get("price_total"),
         "price_per_person": data.get("price_per_person"),
         "participant_limit": data.get("participant_limit"),

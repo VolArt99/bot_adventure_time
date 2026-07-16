@@ -1,5 +1,5 @@
 from aiogram import F, Router
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -20,9 +20,19 @@ from bot.keyboards import (
     event_preview_keyboard,
     template_field_keyboard,
     event_datetime_keyboard,
+    event_time_keyboard,
+    duration_unit_keyboard,
     event_responsible_keyboard,
 )
-from .shared import CreateEvent, event_step_prompt, parse_datetime, build_event_payload
+from .shared import (
+    CreateEvent,
+    event_step_prompt,
+    parse_date_only,
+    parse_time_only,
+    combine_local_datetime,
+    normalize_event_link,
+    build_event_payload,
+)
 from .carpool import advance_after_responsible, _prompt_responsible_step
 from bot.database import is_member_approved
 from bot.utils.helpers import resolve_member_user_id
@@ -31,6 +41,7 @@ from bot.utils.callbacks import finalize_callback
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 from bot.utils.ui import answer_private_intermediate, err
 from bot.utils.topics import get_topics_list_from_db
+from bot.utils.duration import parse_duration_text, apply_duration_unit
 from bot.texts import format_event_message
 from bot.utils.helpers import get_user_mention
 
@@ -38,16 +49,24 @@ router = Router(name=__name__)
 TZ = pytz.timezone(TIMEZONE)
 
 
-def _datetime_example_text() -> str:
-    example = datetime.now(TZ).strftime("%d.%m.%Y %H:%M")
-    return (
-        f"{wizard_prompt('datetime')}\n"
-        f"Пример: <b>{example}</b>"
-    )
+def _date_example_text() -> str:
+    example = datetime.now(TZ).strftime("%d.%m.%Y")
+    return f"{wizard_prompt('date')}\nПример: <b>{example}</b>"
+
+
+def _time_example_text() -> str:
+    return f"{wizard_prompt('time')}\nПример: <b>19:00</b>"
+
+
+def _duration_prompt(*, with_period: bool = False) -> str:
+    base = wizard_prompt("duration")
+    if with_period:
+        return f"{base}\nДля периода можно пропустить — даты уже сохранены."
+    return base
 
 
 async def _advance_after_datetime(message: Message, state: FSMContext, dt: datetime) -> None:
-    await state.update_data(date_time=dt.isoformat())
+    await state.update_data(date_time=dt.isoformat(), start_date=dt.date().isoformat())
     data = await state.get_data()
     if data.get("from_copy"):
         await _prompt_responsible_step(message, state)
@@ -115,6 +134,7 @@ async def start_copy_event_wizard(message: Message, state: FSMContext, source_ev
         description=source_event.get("description"),
         duration_minutes=source_event.get("duration_minutes"),
         location=source_event.get("location"),
+        link=source_event.get("link") or "",
         price_mode=price_mode,
         price_total=price_total if price_mode == "total" else None,
         price_per_person=price_per_person if price_mode == "per_person" else None,
@@ -126,16 +146,16 @@ async def start_copy_event_wizard(message: Message, state: FSMContext, source_ev
         from_copy=True,
         copy_source_id=source_event.get("id"),
     )
-    await _prompt_datetime_step(
+    await _prompt_date_step(
         message,
         state,
         prefix="📋 Шаблон загружен из прошлого мероприятия.",
     )
 
 
-async def _prompt_datetime_step(message: Message, state: FSMContext, *, prefix: str = "", hint: str = "") -> None:
-    await state.set_state(CreateEvent.datetime)
-    body = _datetime_example_text()
+async def _prompt_date_step(message: Message, state: FSMContext, *, prefix: str = "", hint: str = "") -> None:
+    await state.set_state(CreateEvent.date)
+    body = _date_example_text()
     if hint:
         body = f"{body}\n{hint}"
     if prefix:
@@ -143,10 +163,46 @@ async def _prompt_datetime_step(message: Message, state: FSMContext, *, prefix: 
     await answer_private_intermediate(
         message,
         state,
-        event_step_prompt(CreateEvent.datetime.state, body),
+        event_step_prompt(CreateEvent.date.state, body),
         reply_markup=event_datetime_keyboard(back_callback="event_back"),
         parse_mode="HTML",
     )
+
+
+async def _prompt_time_step(message: Message, state: FSMContext) -> None:
+    await state.set_state(CreateEvent.time)
+    await answer_private_intermediate(
+        message,
+        state,
+        event_step_prompt(CreateEvent.time.state, _time_example_text()),
+        reply_markup=event_time_keyboard(back_callback="event_back"),
+        parse_mode="HTML",
+    )
+
+
+async def _prompt_duration_step(message: Message, state: FSMContext, *, with_period: bool = False) -> None:
+    await state.set_state(CreateEvent.duration)
+    await answer_private_intermediate(
+        message,
+        state,
+        event_step_prompt(CreateEvent.duration.state, _duration_prompt(with_period=with_period)),
+        reply_markup=skip_field_keyboard("duration", back_callback="event_back"),
+        parse_mode="HTML",
+    )
+
+
+async def _prompt_link_step(message: Message, state: FSMContext) -> None:
+    await state.set_state(CreateEvent.link)
+    await answer_private_intermediate(
+        message,
+        state,
+        event_step_prompt(CreateEvent.link.state, wizard_prompt("link")),
+        reply_markup=skip_field_keyboard("link", back_callback="event_back"),
+    )
+
+
+async def _advance_after_location(message: Message, state: FSMContext) -> None:
+    await _prompt_link_step(message, state)
 
 
 @router.message(Command("create_event"))
@@ -174,28 +230,80 @@ async def _show_event_step_prompt(message: Message, state: FSMContext, state_nam
                 event_step_prompt(CreateEvent.description.state, wizard_prompt("description")),
                 reply_markup=skip_field_keyboard("description", back_callback="event_back"),
             )
-    elif state_name == CreateEvent.datetime.state:
+    elif state_name == CreateEvent.date.state:
         await answer_private_intermediate(
             message,
             state,
-            event_step_prompt(CreateEvent.datetime.state, _datetime_example_text()),
+            event_step_prompt(CreateEvent.date.state, _date_example_text()),
             reply_markup=event_datetime_keyboard(back_callback="event_back"),
+            parse_mode="HTML",
+        )
+    elif state_name == CreateEvent.time.state:
+        await answer_private_intermediate(
+            message,
+            state,
+            event_step_prompt(CreateEvent.time.state, _time_example_text()),
+            reply_markup=event_time_keyboard(back_callback="event_back"),
             parse_mode="HTML",
         )
     elif state_name == CreateEvent.period_mode.state:
         await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.period_mode.state, wizard_prompt("period_mode")), reply_markup=event_period_mode_keyboard(back_callback="event_back"))
-    elif state_name == CreateEvent.period_end.state:
-        await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.period_end.state, wizard_prompt("period_end")), reply_markup=cancel_keyboard(back_callback="event_back"))
+    elif state_name == CreateEvent.period_end_date.state:
+        example = (datetime.now(TZ) + timedelta(days=14)).strftime("%d.%m.%Y")
+        await answer_private_intermediate(
+            message,
+            state,
+            event_step_prompt(
+                CreateEvent.period_end_date.state,
+                f"{wizard_prompt('period_end_date')}\nПример: <b>{example}</b>",
+            ),
+            reply_markup=cancel_keyboard(back_callback="event_back"),
+            parse_mode="HTML",
+        )
+    elif state_name == CreateEvent.period_end_time.state:
+        await answer_private_intermediate(
+            message,
+            state,
+            event_step_prompt(
+                CreateEvent.period_end_time.state,
+                f"{wizard_prompt('period_end_time')}\nПример: <b>23:59</b>",
+            ),
+            reply_markup=event_time_keyboard(back_callback="event_back"),
+            parse_mode="HTML",
+        )
     elif state_name == CreateEvent.duration.state:
         prompt = event_step_prompt(
             CreateEvent.duration.state,
-            wizard_prompt("duration")
-            if data.get("period_end")
-            else f"{wizard_prompt('duration')}\nПример: 2.5",
+            _duration_prompt(with_period=bool(data.get("period_end"))),
         )
-        await answer_private_intermediate(message, state, prompt, reply_markup=skip_field_keyboard("duration", back_callback="event_back"))
+        await answer_private_intermediate(
+            message,
+            state,
+            prompt,
+            reply_markup=skip_field_keyboard("duration", back_callback="event_back"),
+            parse_mode="HTML",
+        )
+    elif state_name == CreateEvent.duration_unit.state:
+        raw = data.get("pending_duration_value")
+        await answer_private_intermediate(
+            message,
+            state,
+            event_step_prompt(
+                CreateEvent.duration_unit.state,
+                f"⏱ Уточни: <b>{raw}</b> — это часы или минуты?",
+            ),
+            reply_markup=duration_unit_keyboard(back_callback="event_back"),
+            parse_mode="HTML",
+        )
     elif state_name == CreateEvent.location.state:
         await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.location.state, wizard_prompt("location")), reply_markup=skip_field_keyboard("location", back_callback="event_back"))
+    elif state_name == CreateEvent.link.state:
+        await answer_private_intermediate(
+            message,
+            state,
+            event_step_prompt(CreateEvent.link.state, wizard_prompt("link")),
+            reply_markup=skip_field_keyboard("link", back_callback="event_back"),
+        )
     elif state_name == CreateEvent.price_mode.state:
         await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.price_mode.state, wizard_prompt("price_mode")), reply_markup=event_price_mode_keyboard(back_callback="event_back"))
     elif state_name == CreateEvent.price.state:
@@ -295,14 +403,14 @@ async def _prompt_template_description(message: Message, state: FSMContext) -> N
     )
 
 
-async def _go_to_datetime_step(message: Message, state: FSMContext) -> None:
+async def _go_to_date_step(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     hint = (
         "📌 Для этого формата на следующем шаге удобно выбрать период действия."
         if data.get("template_period_hint")
         else ""
     )
-    await _prompt_datetime_step(message, state, hint=hint)
+    await _prompt_date_step(message, state, hint=hint)
 
 
 async def _show_preview_step(message: Message, state: FSMContext) -> None:
@@ -355,12 +463,16 @@ async def event_back(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     previous_map = {
         CreateEvent.description.state: CreateEvent.title.state,
-        CreateEvent.datetime.state: CreateEvent.description.state,
-        CreateEvent.period_mode.state: CreateEvent.datetime.state,
-        CreateEvent.period_end.state: CreateEvent.period_mode.state,
+        CreateEvent.date.state: CreateEvent.description.state,
+        CreateEvent.time.state: CreateEvent.date.state,
+        CreateEvent.period_mode.state: CreateEvent.time.state,
+        CreateEvent.period_end_date.state: CreateEvent.period_mode.state,
+        CreateEvent.period_end_time.state: CreateEvent.period_end_date.state,
         CreateEvent.duration.state: CreateEvent.period_mode.state,
+        CreateEvent.duration_unit.state: CreateEvent.duration.state,
         CreateEvent.location.state: CreateEvent.duration.state,
-        CreateEvent.price_mode.state: CreateEvent.location.state,
+        CreateEvent.link.state: CreateEvent.location.state,
+        CreateEvent.price_mode.state: CreateEvent.link.state,
         CreateEvent.price.state: CreateEvent.price_mode.state,
         CreateEvent.limit.state: CreateEvent.price_mode.state,
         CreateEvent.carpool.state: CreateEvent.limit.state,
@@ -368,7 +480,9 @@ async def event_back(callback: CallbackQuery, state: FSMContext):
         CreateEvent.thread.state: CreateEvent.responsible.state,
         CreateEvent.preview.state: CreateEvent.category.state,
     }
-    if current == CreateEvent.category.state:
+    if current == CreateEvent.duration.state and data.get("period_end"):
+        previous = CreateEvent.period_end_time.state
+    elif current == CreateEvent.category.state:
         previous = CreateEvent.thread.state if data.get("thread_step_shown") else CreateEvent.responsible.state
     else:
         previous = previous_map.get(current)
@@ -502,14 +616,14 @@ async def template_title_custom(callback: CallbackQuery, state: FSMContext):
 async def template_desc_keep(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     await state.update_data(description=data.get("template_suggested_description", ""))
-    await _go_to_datetime_step(callback.message, state)
+    await _go_to_date_step(callback.message, state)
     await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
 @router.callback_query(CreateEvent.description, F.data == "event_tpl_desc_skip")
 async def template_desc_skip(callback: CallbackQuery, state: FSMContext):
     await state.update_data(description="")
-    await _go_to_datetime_step(callback.message, state)
+    await _go_to_date_step(callback.message, state)
     await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
@@ -544,7 +658,7 @@ async def process_title(message: Message, state: FSMContext):
 @router.callback_query(CreateEvent.description, F.data == "skip_description")
 async def skip_description(callback: CallbackQuery, state: FSMContext):
     await state.update_data(description="")
-    await _prompt_datetime_step(callback.message, state)
+    await _prompt_date_step(callback.message, state)
     await finalize_callback(callback, "Описание пропущено", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
@@ -556,13 +670,13 @@ async def process_description(message: Message, state: FSMContext):
         awaiting_custom_description=False,
     )
     if data.get("from_template"):
-        await _go_to_datetime_step(message, state)
+        await _go_to_date_step(message, state)
         return
-    await _prompt_datetime_step(message, state)
+    await _prompt_date_step(message, state)
 
 
 @router.callback_query(
-    CreateEvent.datetime,
+    CreateEvent.date,
     F.data.in_({"event_dt_tonight", "event_dt_tomorrow", "event_dt_saturday"}),
 )
 async def quick_datetime(callback: CallbackQuery, state: FSMContext):
@@ -574,17 +688,71 @@ async def quick_datetime(callback: CallbackQuery, state: FSMContext):
     await finalize_callback(callback, f"📅 {dt.strftime('%d.%m.%Y %H:%M')}", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
-@router.message(CreateEvent.datetime, ~F.text.startswith("/"))
-async def process_datetime(message: Message, state: FSMContext):
-    dt = await parse_datetime(message.text)
-    if not dt:
+@router.message(CreateEvent.date, ~F.text.startswith("/"))
+async def process_date(message: Message, state: FSMContext):
+    day = parse_date_only(message.text or "")
+    today = datetime.now(TZ).date()
+    if not day or day < today:
         await answer_private_intermediate(
             message,
             state,
             "❌ Неверный формат или дата в прошлом.\n"
-            "Используйте: ДД.ММ.ГГГГ ЧЧ:ММ\n"
-            "Примеры: 25.05.2026 19:30, 01.06.2026 10:00",
+            "Используйте: ДД.ММ.ГГГГ\n"
+            f"Пример: {today.strftime('%d.%m.%Y')}",
             reply_markup=event_datetime_keyboard(back_callback="event_back"),
+        )
+        return
+
+    await state.update_data(start_date=day.isoformat())
+    await _prompt_time_step(message, state)
+
+
+@router.callback_query(CreateEvent.time, F.data.startswith("event_time_"))
+async def quick_time(callback: CallbackQuery, state: FSMContext):
+    clock = parse_time_only(callback.data.removeprefix("event_time_"))
+    if not clock:
+        await finalize_callback(callback, "Некорректное время", show_alert=True)
+        return
+    data = await state.get_data()
+    start_date_raw = data.get("start_date")
+    if not start_date_raw:
+        await finalize_callback(callback, "Сначала укажите дату", show_alert=True)
+        return
+    day = date.fromisoformat(start_date_raw)
+    dt = combine_local_datetime(day, clock)
+    if dt <= datetime.now(TZ):
+        await finalize_callback(callback, "Время уже в прошлом", show_alert=True)
+        return
+    await _advance_after_datetime(callback.message, state, dt)
+    await finalize_callback(callback, f"🕒 {dt.strftime('%H:%M')}", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+
+
+@router.message(CreateEvent.time, ~F.text.startswith("/"))
+async def process_time(message: Message, state: FSMContext):
+    clock = parse_time_only(message.text or "")
+    if not clock:
+        await answer_private_intermediate(
+            message,
+            state,
+            "❌ Неверный формат времени.\nИспользуйте: ЧЧ:ММ\nПример: 19:30",
+            reply_markup=event_time_keyboard(back_callback="event_back"),
+        )
+        return
+
+    data = await state.get_data()
+    start_date_raw = data.get("start_date")
+    if not start_date_raw:
+        await _prompt_date_step(message, state, prefix="Сначала укажите дату начала.")
+        return
+
+    day = date.fromisoformat(start_date_raw)
+    dt = combine_local_datetime(day, clock)
+    if dt <= datetime.now(TZ):
+        await answer_private_intermediate(
+            message,
+            state,
+            "❌ Это время уже в прошлом. Выберите другое.",
+            reply_markup=event_time_keyboard(back_callback="event_back"),
         )
         return
 
@@ -596,29 +764,22 @@ async def process_period_mode(callback: CallbackQuery, state: FSMContext):
     mode = callback.data.removeprefix("event_period_")
     if mode == "none":
         await state.update_data(period_end=None)
-        await state.set_state(CreateEvent.duration)
-        await answer_private_intermediate(
-            callback.message,
-            state,
-            event_step_prompt(
-                CreateEvent.duration.state,
-                f"{wizard_prompt('duration')}\nПример: 2.5",
-            ),
-            reply_markup=skip_field_keyboard("duration", back_callback="event_back"),
-        )
+        await _prompt_duration_step(callback.message, state, with_period=False)
         await finalize_callback(callback, "Разовое мероприятие", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
         return
 
     if mode == "range":
-        await state.set_state(CreateEvent.period_end)
+        example = (datetime.now(TZ) + timedelta(days=14)).strftime("%d.%m.%Y")
+        await state.set_state(CreateEvent.period_end_date)
         await answer_private_intermediate(
             callback.message,
             state,
             event_step_prompt(
-                CreateEvent.period_mode.state,
-                f"{wizard_prompt('period_end')}\nПример: 30.06.2026 23:59",
+                CreateEvent.period_end_date.state,
+                f"{wizard_prompt('period_end_date')}\nПример: <b>{example}</b>",
             ),
             reply_markup=cancel_keyboard(back_callback="event_back"),
+            parse_mode="HTML",
         )
         await finalize_callback(callback, "Период действия", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
         return
@@ -626,56 +787,208 @@ async def process_period_mode(callback: CallbackQuery, state: FSMContext):
     await finalize_callback(callback, "Некорректный выбор", show_alert=True)
 
 
-@router.message(CreateEvent.period_end, ~F.text.startswith("/"))
-async def process_period_end(message: Message, state: FSMContext):
-    end_dt = await parse_datetime(message.text)
+@router.message(CreateEvent.period_end_date, ~F.text.startswith("/"))
+async def process_period_end_date(message: Message, state: FSMContext):
+    day = parse_date_only(message.text or "")
     data = await state.get_data()
     start_dt = datetime.fromisoformat(data["date_time"])
-    if not end_dt or end_dt <= start_dt:
+    if not day:
         await answer_private_intermediate(
             message,
             state,
-            "❌ Дата окончания должна быть позже даты старта.\n"
-            "Используйте формат: ДД.ММ.ГГГГ ЧЧ:ММ",
+            "❌ Неверный формат.\nИспользуйте: ДД.ММ.ГГГГ",
+            reply_markup=cancel_keyboard(back_callback="event_back"),
+        )
+        return
+    if day < start_dt.date():
+        await answer_private_intermediate(
+            message,
+            state,
+            "❌ Дата окончания не может быть раньше даты старта.",
+            reply_markup=cancel_keyboard(back_callback="event_back"),
         )
         return
 
-    await state.update_data(period_end=end_dt.isoformat())
-    await state.set_state(CreateEvent.duration)
+    await state.update_data(period_end_date=day.isoformat())
+    await state.set_state(CreateEvent.period_end_time)
     await answer_private_intermediate(
         message,
         state,
         event_step_prompt(
-            CreateEvent.duration.state,
-            f"{wizard_prompt('duration')}\n"
-            "Для книжного клуба можно пропустить — период уже сохранён.",
+            CreateEvent.period_end_time.state,
+            f"{wizard_prompt('period_end_time')}\nПример: <b>23:59</b>",
         ),
-        reply_markup=skip_field_keyboard("duration", back_callback="event_back"),
+        reply_markup=event_time_keyboard(back_callback="event_back"),
+        parse_mode="HTML",
     )
+
+
+async def _finish_period_end(message: Message, state: FSMContext, clock) -> bool:
+    data = await state.get_data()
+    end_date_raw = data.get("period_end_date")
+    if not end_date_raw:
+        return False
+    start_dt = datetime.fromisoformat(data["date_time"])
+    end_dt = combine_local_datetime(date.fromisoformat(end_date_raw), clock)
+    if end_dt <= start_dt:
+        await answer_private_intermediate(
+            message,
+            state,
+            "❌ Дата и время окончания должны быть позже старта.",
+            reply_markup=event_time_keyboard(back_callback="event_back"),
+        )
+        return False
+    await state.update_data(period_end=end_dt.isoformat())
+    await _prompt_duration_step(message, state, with_period=True)
+    return True
+
+
+@router.callback_query(CreateEvent.period_end_time, F.data.startswith("event_time_"))
+async def quick_period_end_time(callback: CallbackQuery, state: FSMContext):
+    clock = parse_time_only(callback.data.removeprefix("event_time_"))
+    if not clock:
+        await finalize_callback(callback, "Некорректное время", show_alert=True)
+        return
+    ok = await _finish_period_end(callback.message, state, clock)
+    if ok:
+        await finalize_callback(callback, f"🕒 {clock.strftime('%H:%M')}", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+    else:
+        await finalize_callback(callback, "Проверьте время", show_alert=True)
+
+
+@router.message(CreateEvent.period_end_time, ~F.text.startswith("/"))
+async def process_period_end_time(message: Message, state: FSMContext):
+    clock = parse_time_only(message.text or "")
+    if not clock:
+        await answer_private_intermediate(
+            message,
+            state,
+            "❌ Неверный формат времени.\nИспользуйте: ЧЧ:ММ\nПример: 23:59",
+            reply_markup=event_time_keyboard(back_callback="event_back"),
+        )
+        return
+    await _finish_period_end(message, state, clock)
 
 
 @router.callback_query(CreateEvent.duration, F.data == "skip_duration")
 async def skip_duration(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(duration_minutes=None)
+    await state.update_data(duration_minutes=None, pending_duration_value=None)
     await state.set_state(CreateEvent.location)
     await answer_private_intermediate(callback.message, state, event_step_prompt(CreateEvent.location.state, wizard_prompt("location")), reply_markup=skip_field_keyboard("location", back_callback="event_back"))
     await finalize_callback(callback, "Длительность пропущена", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
+async def _advance_after_duration(message: Message, state: FSMContext, duration_minutes: int | None) -> None:
+    await state.update_data(duration_minutes=duration_minutes, pending_duration_value=None)
+    await state.set_state(CreateEvent.location)
+    await answer_private_intermediate(
+        message,
+        state,
+        event_step_prompt(CreateEvent.location.state, wizard_prompt("location")),
+        reply_markup=skip_field_keyboard("location", back_callback="event_back"),
+    )
+
+
 @router.message(CreateEvent.duration, ~F.text.startswith("/"))
 async def process_duration(message: Message, state: FSMContext):
-    if message.text.lower() == "пропустить":
-        duration_minutes = None
-    else:
-        try:
-            duration_minutes = int(float(message.text) * 60)
-        except ValueError:
-            await answer_private_intermediate(message, state, err("Неверный формат.\nПример: 2 или 2.5\nИли напишите: пропустить"))
-            return
+    parsed = parse_duration_text(message.text or "")
+    if parsed.error:
+        await answer_private_intermediate(
+            message,
+            state,
+            err(
+                "Неверный формат длительности.\n"
+                "Примеры: 1 ч 30 мин, 90 мин, 2\n"
+                "Или напишите: пропустить"
+            ),
+            reply_markup=skip_field_keyboard("duration", back_callback="event_back"),
+        )
+        return
 
-    await state.update_data(duration_minutes=duration_minutes)
-    await state.set_state(CreateEvent.location)
-    await answer_private_intermediate(message, state, event_step_prompt(CreateEvent.location.state, wizard_prompt("location")), reply_markup=skip_field_keyboard("location", back_callback="event_back"))
+    if parsed.needs_unit:
+        await state.update_data(pending_duration_value=parsed.raw_value)
+        await state.set_state(CreateEvent.duration_unit)
+        await answer_private_intermediate(
+            message,
+            state,
+            event_step_prompt(
+                CreateEvent.duration_unit.state,
+                f"⏱ Уточни: <b>{parsed.raw_value:g}</b> — это часы или минуты?",
+            ),
+            reply_markup=duration_unit_keyboard(back_callback="event_back"),
+            parse_mode="HTML",
+        )
+        return
+
+    await _advance_after_duration(message, state, parsed.minutes)
+
+
+@router.callback_query(CreateEvent.duration_unit, F.data.startswith("duration_unit_"))
+async def process_duration_unit(callback: CallbackQuery, state: FSMContext):
+    unit = callback.data.removeprefix("duration_unit_")
+    data = await state.get_data()
+    raw_value = data.get("pending_duration_value")
+    if raw_value is None:
+        await _prompt_duration_step(callback.message, state)
+        await finalize_callback(callback, "Введите длительность снова", show_alert=True)
+        return
+
+    minutes = apply_duration_unit(float(raw_value), unit)
+    if minutes is None:
+        await finalize_callback(callback, "Некорректное значение", show_alert=True)
+        return
+
+    await _advance_after_duration(callback.message, state, minutes)
+    label = "ч" if unit == "hours" else "мин"
+    await finalize_callback(
+        callback,
+        f"⏱ {raw_value:g} {label}",
+        delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+    )
+
+
+@router.callback_query(CreateEvent.location, F.data == "skip_location")
+async def skip_location(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(location=None)
+    await _advance_after_location(callback.message, state)
+    await finalize_callback(callback, "Место пропущено", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+
+
+@router.message(CreateEvent.location, ~F.text.startswith("/"))
+async def process_location(message: Message, state: FSMContext):
+    if message.text.lower() == "пропустить":
+        await state.update_data(location=None)
+    else:
+        await state.update_data(location=message.text)
+    await _advance_after_location(message, state)
+
+
+@router.callback_query(CreateEvent.link, F.data == "skip_link")
+async def skip_link(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(link="")
+    await _ask_price_mode(callback.message, state)
+    await finalize_callback(callback, "Ссылка пропущена", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
+
+
+@router.message(CreateEvent.link, ~F.text.startswith("/"))
+async def process_link(message: Message, state: FSMContext):
+    if (message.text or "").lower() in {"пропустить", "-"}:
+        await state.update_data(link="")
+        await _ask_price_mode(message, state)
+        return
+
+    link = normalize_event_link(message.text or "")
+    if not link:
+        await answer_private_intermediate(
+            message,
+            state,
+            err("Не похоже на ссылку.\nПример: https://example.com\nИли напишите: пропустить"),
+            reply_markup=skip_field_keyboard("link", back_callback="event_back"),
+        )
+        return
+
+    await state.update_data(link=link)
+    await _ask_price_mode(message, state)
 
 
 async def _ask_price_mode(message: Message, state: FSMContext) -> None:
@@ -686,22 +999,6 @@ async def _ask_price_mode(message: Message, state: FSMContext) -> None:
         event_step_prompt(CreateEvent.price_mode.state, wizard_prompt("price_mode")),
         reply_markup=event_price_mode_keyboard(back_callback="event_back"),
     )
-
-
-@router.callback_query(CreateEvent.location, F.data == "skip_location")
-async def skip_location(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(location=None)
-    await _ask_price_mode(callback.message, state)
-    await finalize_callback(callback, "Место пропущено", delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
-
-
-@router.message(CreateEvent.location, ~F.text.startswith("/"))
-async def process_location(message: Message, state: FSMContext):
-    if message.text.lower() == "пропустить":
-        await state.update_data(location=None)
-    else:
-        await state.update_data(location=message.text)
-    await _ask_price_mode(message, state)
 
 
 @router.callback_query(CreateEvent.price_mode, F.data.startswith("price_mode_"))

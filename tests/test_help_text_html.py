@@ -104,7 +104,8 @@ class HelpTextHtmlTests(unittest.TestCase):
 
         self.assertEqual(rows[0], ["✅ В путь!", "⏳ В резерве"])
         self.assertEqual(rows[1], ["❌ В другой раз"])
-        self.assertEqual(rows[2], ["🚗 Водитель", "👥 Попутка"])
+        self.assertEqual(rows[2], ["👥 Гости"])
+        self.assertEqual(rows[3], ["🚗 Водитель", "👥 Попутка"])
         self.assertNotIn(["🗑 Удалить"], rows)
 
     def test_event_card_keyboard_shows_start_bot_link_in_group(self):
@@ -130,6 +131,32 @@ class HelpTextHtmlTests(unittest.TestCase):
         keyboard = event_actions(42, participation_status="going")
         rows = [[button.text for button in row] for row in keyboard.inline_keyboard]
         self.assertEqual(rows[0], ["❌ Снять запись"])
+        self.assertEqual(rows[1], ["👥 Гости"])
+
+    def test_help_mentions_guests_button(self):
+        text = build_help_text(is_admin_or_owner=False)
+        self.assertIn("👥 Гости", text)
+
+    def test_admin_help_mentions_refresh_event_cards(self):
+        text = build_help_text(is_admin_or_owner=True)
+        self.assertIn("/refresh_event_cards", text)
+        self.assertIn("Пакетно обновить", text)
+
+    def test_registered_command_handlers_are_in_command_specs(self):
+        """Каждый Command(\"…\") в handlers должен быть в COMMAND_SPECS."""
+        import re
+        from pathlib import Path
+
+        handlers_root = Path(__file__).resolve().parents[1] / "bot" / "handlers"
+        found: set[str] = set()
+        for path in handlers_root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            found.update(re.findall(r'Command\(\s*"([a-z0-9_]+)"\s*\)', text))
+        # CommandStart() обслуживает /start — в реестре есть start
+        found.add("start")
+        registry = {spec.command for spec in COMMAND_SPECS}
+        missing = sorted(found - registry)
+        self.assertEqual(missing, [], msg=f"handlers without COMMAND_SPECS: {missing}")
 
     def test_menu_separates_action_and_help_callbacks(self):
         event_menu = menu_section_keyboard("events_create", is_admin_or_owner=False)
@@ -219,14 +246,17 @@ class HelpTextHtmlTests(unittest.TestCase):
 
     def test_menu_lists_all_admin_commands_for_admin_section(self):
         menu_commands = self._menu_command_callbacks(is_admin_or_owner=True)
+        # Устаревшие/служебные команды есть в /help, но не дублируются кнопками меню.
+        menu_optional = {"cancel_event"}
         for spec in COMMAND_SPECS:
-            if spec.group != "admin":
+            if spec.group != "admin" or spec.command in menu_optional:
                 continue
             in_menu = spec.command in menu_commands or spec.command in {
                 "roles",
                 "usage_stats",
                 "admin_report",
                 "send_events_list",
+                "refresh_event_cards",
                 "random_pairs",
                 "reset_user_limit",
             }

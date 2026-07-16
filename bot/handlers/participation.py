@@ -29,6 +29,8 @@ from bot.database import (
     remove_participant,
     get_participants,
     get_main_participants,
+    get_main_guest_counts,
+    get_occupied_seats,
     get_ride_seekers,
     move_from_waitlist,
     add_driver,
@@ -38,12 +40,17 @@ from bot.database import (
     toggle_ride_seeker,
     set_attendance_response,
     get_attendance_summary,
+    set_participant_guest_count,
 )
 
 
-# Состояния для ввода количества мест водителем
+# Состояния для ввода количества мест водителем / гостей участником
 class CarpoolState(StatesGroup):
     seats = State()
+
+
+class GuestState(StatesGroup):
+    count = State()
 
 
 logger = logging.getLogger(__name__)
@@ -84,12 +91,13 @@ async def _collect_event_card_context(event_id: int, bot: Bot) -> tuple[dict | N
 
     from bot.database import get_topic_name_by_thread_id
 
-    main_ids, waitlist, topic_name, drivers, ride_seekers = await asyncio.gather(
+    main_ids, waitlist, topic_name, drivers, ride_seekers, guest_counts = await asyncio.gather(
         get_main_participants(event_id),
         get_participants(event_id, "waitlist"),
         get_topic_name_by_thread_id(event.get("thread_id")),
         get_drivers_with_passengers(event_id),
         get_ride_seekers(event_id),
+        get_main_guest_counts(event_id),
     )
     seeker_set = set(ride_seekers)
     going = [uid for uid in main_ids if uid not in seeker_set]
@@ -108,6 +116,7 @@ async def _collect_event_card_context(event_id: int, bot: Bot) -> tuple[dict | N
         organizer_mention=mentions.get(event["creator_id"]),
         responsible_mention=mentions.get(responsible_id),
         show_cta=True,
+        guest_counts=guest_counts,
     )
     return event, text, {
         "going": going,
@@ -116,6 +125,7 @@ async def _collect_event_card_context(event_id: int, bot: Bot) -> tuple[dict | N
         "ride_seekers": ride_seekers,
         "topic_name": topic_name,
         "mentions": mentions,
+        "guest_counts": guest_counts,
     }
 
 
@@ -126,10 +136,14 @@ async def build_event_text(event_id: int, bot: Bot) -> str:
 
 async def update_event_message(
     bot: Bot, event_id: int, thread_id: int, message_id: int
-):
+) -> str:
+    """Обновляет текст и кнопки карточки в группе.
+
+    Возвращает: ``updated`` | ``unchanged`` | ``missing`` | ``error``.
+    """
     event, text, _ = await _collect_event_card_context(event_id, bot)
     if not event:
-        return
+        return "missing"
 
     from bot.utils.notifications import get_bot_start_url
 
@@ -147,9 +161,18 @@ async def update_event_message(
             parse_mode="HTML",
             disable_web_page_preview=True,
         )
+        return "updated"
     except TelegramBadRequest as e:
-        if "message is not modified" not in str(e):
-            raise
+        err = str(e).lower()
+        if "message is not modified" in err:
+            return "unchanged"
+        if "message to edit not found" in err or "message can't be edited" in err:
+            return "missing"
+        logger.warning("Failed to refresh event card %s: %s", event_id, e)
+        return "error"
+    except Exception as e:
+        logger.warning("Failed to refresh event card %s: %s", event_id, e)
+        return "error"
 
 
 async def _attendance_reply_text(event_id: int, *, confirmed: bool) -> str:
@@ -178,11 +201,12 @@ async def join_event(callback: CallbackQuery):
     if not event or event["status"] != "active":
         await finalize_callback(callback, "Мероприятие уже завершено или отменено", show_alert=True)
         return
-    going, waitlist = await asyncio.gather(
+    going, waitlist, occupied = await asyncio.gather(
         get_main_participants(event_id),
         get_participants(event_id, "waitlist"),
+        get_occupied_seats(event_id),
     )
-    if event["participant_limit"] and len(going) >= event["participant_limit"]:
+    if event["participant_limit"] and occupied >= event["participant_limit"]:
         await finalize_callback(callback, "Мест нет. Можешь записаться в резерв", show_alert=True)
         return
     if user_id in waitlist:
@@ -330,6 +354,116 @@ async def decline_attendance(callback: CallbackQuery):
             callback.bot, event_id, event["thread_id"], event["message_id"]
         )
     await finalize_callback(callback, await _attendance_reply_text(event_id, confirmed=False))
+
+
+@router.callback_query(F.data.startswith("guests_"))
+@approved_member_callback_only
+async def ask_guest_count(callback: CallbackQuery, state: FSMContext):
+    event_id = parse_callback_split_int(callback.data, index=1, min_parts=2)
+    if event_id is None:
+        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        return
+    user_id = callback.from_user.id
+    if await _answer_if_participation_rate_limited(callback, event_id=event_id, action="guests"):
+        return
+    event = await get_event(event_id)
+    if not event or event["status"] != "active":
+        await finalize_callback(callback, "Мероприятие уже завершено или отменено", show_alert=True)
+        return
+
+    main = await get_main_participants(event_id)
+    if user_id not in main:
+        await finalize_callback(
+            callback,
+            "Сначала запишись на мероприятие («В путь!»)",
+            show_alert=True,
+        )
+        return
+
+    guest_counts = await get_main_guest_counts(event_id)
+    current = int(guest_counts.get(user_id, 0) or 0)
+    await state.update_data(guest_event_id=event_id)
+    await state.set_state(GuestState.count)
+    current_line = (
+        f"Сейчас у тебя указано: <b>{current}</b>.\n"
+        if current > 0
+        else ""
+    )
+    try:
+        await callback.bot.send_message(
+            user_id,
+            f"👥 Сколько гостей берёшь с собой на «{event['title']}»?\n"
+            f"{current_line}"
+            "Введи число (0 — убрать гостей).",
+            parse_mode="HTML",
+        )
+    except TelegramForbiddenError:
+        await state.clear()
+        await finalize_callback(
+            callback,
+            "Не могу написать в ЛС. Открой чат с ботом и нажми Start.",
+            show_alert=True,
+        )
+        return
+    await finalize_callback(callback, "Написал в ЛС")
+
+
+@router.message(GuestState.count, ~F.text.startswith("/"))
+async def process_guest_count(message: Message, state: FSMContext):
+    data = await state.get_data()
+    event_id = data.get("guest_event_id")
+    if not event_id:
+        await state.clear()
+        await message.answer("❌ Сессия сброшена. Нажми «Гости» на карточке снова.")
+        return
+
+    text = (message.text or "").strip()
+    try:
+        guest_count = int(text)
+    except ValueError:
+        await message.answer("❌ Введи целое число гостей (например: 2). 0 — убрать гостей.")
+        return
+    if guest_count < 0:
+        await message.answer("❌ Число гостей не может быть отрицательным.")
+        return
+
+    event = await get_event(int(event_id))
+    if not event or event["status"] != "active":
+        await state.clear()
+        await message.answer("❌ Мероприятие уже завершено или отменено.")
+        return
+
+    result = await set_participant_guest_count(int(event_id), message.from_user.id, guest_count)
+    if result == "not_participant":
+        await state.clear()
+        await message.answer("❌ Сначала запишись на мероприятие («В путь!»).")
+        return
+    if result == "full":
+        occupied = await get_occupied_seats(int(event_id))
+        limit = int(event.get("participant_limit") or 0)
+        current_guests = int((await get_main_guest_counts(int(event_id))).get(message.from_user.id, 0) or 0)
+        max_guests = max(0, limit - occupied + current_guests) if limit > 0 else guest_count
+        await message.answer(
+            f"❌ Не хватает мест на мероприятии.\n"
+            f"Можно указать не больше {max_guests} гостей."
+        )
+        return
+    if result != "ok":
+        await message.answer("❌ Не удалось сохранить число гостей.")
+        return
+
+    await state.clear()
+    if guest_count == 0:
+        await message.answer("✅ Гости убраны с карточки.")
+    else:
+        from bot.texts import format_guest_suffix
+
+        await message.answer(f"✅ Готово:{format_guest_suffix(guest_count)}")
+
+    if event.get("message_id"):
+        await update_event_message(
+            message.bot, int(event_id), event["thread_id"], event["message_id"]
+        )
 
 
 @router.callback_query(F.data.startswith("driver_"))

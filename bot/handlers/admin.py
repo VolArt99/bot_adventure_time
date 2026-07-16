@@ -11,6 +11,7 @@ from bot.database import (
     get_admin_report_metrics,
     get_approved_member_ids,
     get_member_reengage_candidates,
+    get_refreshable_event_cards,
     get_topic_name_by_thread_id,
     get_user_category_subscriptions,
     reset_user_daily_command_count,
@@ -55,6 +56,58 @@ async def cmd_send_events_list(message: Message):
     await message.answer(
         "Выберите период для публикации списка мероприятий:",
         reply_markup=period_keyboard("broadcast_period"),
+    )
+
+
+@router.message(Command("refresh_event_cards"))
+@admin_only
+async def cmd_refresh_event_cards(message: Message):
+    """Перерисовывает карточки активных/будущих мероприятий (текст + кнопки)."""
+    await run_refresh_event_cards(message)
+
+
+async def run_refresh_event_cards(message: Message) -> None:
+    """Общая логика пакетного обновления карточек."""
+    import asyncio
+
+    from bot.handlers.participation import update_event_message
+
+    events = await get_refreshable_event_cards()
+    if not events:
+        await message.answer("📭 Нет активных карточек для обновления (будущие/период).")
+        return
+
+    await message.answer(
+        f"🔄 Обновляю карточки: <b>{len(events)}</b> шт.\n"
+        "Это может занять немного времени…",
+        parse_mode="HTML",
+    )
+
+    updated = unchanged = missing = errors = 0
+    for event in events:
+        result = await update_event_message(
+            message.bot,
+            int(event["id"]),
+            event.get("thread_id") or 0,
+            int(event["message_id"]),
+        )
+        if result == "updated":
+            updated += 1
+        elif result == "unchanged":
+            unchanged += 1
+        elif result == "missing":
+            missing += 1
+        else:
+            errors += 1
+        await asyncio.sleep(0.35)
+
+    await message.answer(
+        "✅ Готово.\n"
+        f"• Обновлено: <b>{updated}</b>\n"
+        f"• Без изменений: <b>{unchanged}</b>\n"
+        f"• Сообщение не найдено: <b>{missing}</b>\n"
+        f"• Ошибки: <b>{errors}</b>",
+        parse_mode="HTML",
     )
 
 

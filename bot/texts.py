@@ -158,6 +158,27 @@ def category_to_hashtags(categories_raw: str | None) -> str:
     return " ".join(category_to_hashtag(category) for category in categories)
 
 
+def format_guest_suffix(guest_count: int) -> str:
+    """Суффикс «+ N гость/гостя/гостей»."""
+    n = int(guest_count or 0)
+    if n <= 0:
+        return ""
+    n10 = n % 10
+    n100 = n % 100
+    if n10 == 1 and n100 != 11:
+        word = "гость"
+    elif n10 in (2, 3, 4) and n100 not in (12, 13, 14):
+        word = "гостя"
+    else:
+        word = "гостей"
+    return f" + {n} {word}"
+
+
+def format_going_entry(mention: str, guest_count: int = 0) -> str:
+    """Участник в списке «Идут», опционально с гостями."""
+    return f"{mention}{format_guest_suffix(guest_count)}"
+
+
 def event_status_badges(event: Dict, going_count: int, waitlist_count: int, *, now: datetime | None = None) -> str:
     """Возвращает визуальный статус карточки мероприятия."""
     try:
@@ -216,6 +237,7 @@ async def format_event_message(
     *,
     show_cta: bool = False,
     show_event_id: bool = False,
+    guest_counts: Dict[int, int] | None = None,
 ) -> str:
     dt = datetime.fromisoformat(event["date_time"]).astimezone(TZ)
     date_str = dt.strftime("%d.%m.%Y")
@@ -231,7 +253,9 @@ async def format_event_message(
 
     price_total = event.get("price_total") or 0
     price_per_person = event.get("price_per_person") or 0
-    going_count = len(going_list)
+    guests_map = guest_counts or {}
+    people_count = sum(1 + int(guests_map.get(uid, 0) or 0) for uid in going_list)
+    going_count = people_count
     waitlist_count = len(waitlist_list)
     limit_value = event.get("participant_limit")
     limit_str = str(limit_value) if limit_value else "∞"
@@ -249,7 +273,16 @@ async def format_event_message(
     weather = await _resolve_weather_line(event, dt)
     carpool_enabled = bool(event.get("carpool_enabled"))
 
-    going_inline = " · ".join(mentions_dict.get(uid, f"id{uid}") for uid in going_list) or "—"
+    going_inline = (
+        " · ".join(
+            format_going_entry(
+                mentions_dict.get(uid, f"id{uid}"),
+                int(guests_map.get(uid, 0) or 0),
+            )
+            for uid in going_list
+        )
+        or "—"
+    )
     waitlist_inline = " · ".join(mentions_dict.get(uid, f"id{uid}") for uid in waitlist_list) or "—"
 
     status_badges = event_status_badges(event, going_count, waitlist_count)
@@ -271,6 +304,10 @@ async def format_event_message(
     about_lines.append(" · ".join(timing_parts))
     if period_text:
         about_lines.append(period_text)
+    event_link = (event.get("link") or "").strip()
+    if event_link:
+        safe_link = escape(event_link)
+        about_lines.append(f'🔗 <a href="{safe_link}">Ссылка</a>')
     if carpool_enabled:
         about_lines.append("🚗 Карпулинг включён")
     if organizer_mention:
@@ -315,14 +352,19 @@ async def format_event_message(
         ride_seekers = await get_ride_seekers(int(event["id"]))
         if ride_seekers:
             seeker_line = " · ".join(
-                mentions_dict.get(uid, f"id{uid}") for uid in ride_seekers
+                format_going_entry(
+                    mentions_dict.get(uid, f"id{uid}"),
+                    int(guests_map.get(uid, 0) or 0),
+                )
+                for uid in ride_seekers
             )
             lines.extend(card_section(f"Ищут попутку ({len(ride_seekers)})", [seeker_line]))
         if drivers:
             lines.extend(card_section("🚗 Водители и пассажиры", []))
             for driver in drivers:
-                driver_mention = mentions_dict.get(
-                    driver["user_id"], f"id{driver['user_id']}"
+                driver_mention = format_going_entry(
+                    mentions_dict.get(driver["user_id"], f"id{driver['user_id']}"),
+                    int(guests_map.get(driver["user_id"], 0) or 0),
                 )
                 free_seats = driver["car_seats"] - len(driver["passengers"])
                 lines.append(
@@ -330,7 +372,11 @@ async def format_event_message(
                 )
                 if driver["passengers"]:
                     passengers = ", ".join(
-                        mentions_dict.get(p, f"id{p}") for p in driver["passengers"]
+                        format_going_entry(
+                            mentions_dict.get(p, f"id{p}"),
+                            int(guests_map.get(p, 0) or 0),
+                        )
+                        for p in driver["passengers"]
                     )
                     lines.append(f"   Пассажиры: {passengers}")
 

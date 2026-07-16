@@ -41,6 +41,7 @@ def event_actions(
 
     if participation_status == "going":
         rows.append([InlineKeyboardButton(text="❌ Снять запись", callback_data=f"decline_{event_id}")])
+        rows.append([InlineKeyboardButton(text="👥 Гости", callback_data=f"guests_{event_id}")])
         if carpool_enabled:
             rows.extend(_carpool_rows(event_id))
     elif participation_status == "waitlist":
@@ -60,6 +61,8 @@ def event_actions(
             ]
         )
         rows.append([InlineKeyboardButton(text="❌ В другой раз", callback_data=f"decline_{event_id}")])
+        # В группе кнопка общая: проверка «ты в списке» — в хендлере.
+        rows.append([InlineKeyboardButton(text="👥 Гости", callback_data=f"guests_{event_id}")])
         if carpool_enabled:
             rows.extend(_carpool_rows(event_id))
 
@@ -170,7 +173,7 @@ def skip_field_keyboard(field: str, back_callback: str | None = None) -> InlineK
 
 
 def event_datetime_keyboard(back_callback: str | None = None) -> InlineKeyboardMarkup:
-    """Быстрый выбор даты + ручной ввод."""
+    """Быстрый выбор даты+времени целиком (пропуск шагов дата/время)."""
     rows = [
         [
             InlineKeyboardButton(text="🌆 Сегодня вечером", callback_data="event_dt_tonight"),
@@ -181,6 +184,41 @@ def event_datetime_keyboard(back_callback: str | None = None) -> InlineKeyboardM
     if back_callback:
         rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=back_callback)])
     rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_create")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def event_time_keyboard(back_callback: str | None = None) -> InlineKeyboardMarkup:
+    """Частые варианты времени начала."""
+    rows = [
+        [
+            InlineKeyboardButton(text="10:00", callback_data="event_time_10:00"),
+            InlineKeyboardButton(text="12:00", callback_data="event_time_12:00"),
+            InlineKeyboardButton(text="15:00", callback_data="event_time_15:00"),
+        ],
+        [
+            InlineKeyboardButton(text="18:00", callback_data="event_time_18:00"),
+            InlineKeyboardButton(text="19:00", callback_data="event_time_19:00"),
+            InlineKeyboardButton(text="20:00", callback_data="event_time_20:00"),
+        ],
+    ]
+    if back_callback:
+        rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=back_callback)])
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_create")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def duration_unit_keyboard(back_callback: str | None = None, *, cancel: bool = True) -> InlineKeyboardMarkup:
+    """Уточнение единицы для голого числа длительности."""
+    rows = [
+        [
+            InlineKeyboardButton(text="Часы", callback_data="duration_unit_hours"),
+            InlineKeyboardButton(text="Минуты", callback_data="duration_unit_minutes"),
+        ],
+    ]
+    if back_callback:
+        rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=back_callback)])
+    if cancel:
+        rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_create")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -238,6 +276,7 @@ def edit_event_fields_keyboard(event_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📆 Конец периода", callback_data=f"{prefix}period_end")],
             [InlineKeyboardButton(text="⏱ Длительность", callback_data=f"{prefix}duration")],
             [InlineKeyboardButton(text="📍 Место", callback_data=f"{prefix}location")],
+            [InlineKeyboardButton(text="🔗 Ссылка", callback_data=f"{prefix}link")],
             [InlineKeyboardButton(text="💰 Стоимость", callback_data=f"{prefix}price")],
             [InlineKeyboardButton(text="👥 Лимит участников", callback_data=f"{prefix}limit")],
             [InlineKeyboardButton(text="🚗 Карпулинг", callback_data=f"{prefix}carpool")],
@@ -448,6 +487,7 @@ def menu_section_keyboard(section: str, is_admin_or_owner: bool = False) -> Inli
         section_rows["admin_content"] = [
             [InlineKeyboardButton(text="📋 Отчёт", callback_data="menu_action_admin_report")],
             [InlineKeyboardButton(text="📣 Список мероприятий", callback_data="menu_action_send_events_list")],
+            [InlineKeyboardButton(text="🔄 Обновить карточки", callback_data="menu_action_refresh_event_cards")],
             [InlineKeyboardButton(text="🤝 Случайные пары", callback_data="menu_action_random_pairs")],
             [InlineKeyboardButton(text="⌨️ /random_optin_count", callback_data="menu_cmd_random_optin_count")],
             [InlineKeyboardButton(text="↩️ К админке", callback_data="menu_admin")],

@@ -28,6 +28,7 @@ async def init_db():
             duration_minutes BIGINT,
             period_end TEXT,
             location TEXT,
+            link TEXT,
             price_total DOUBLE PRECISION,
             price_per_person DOUBLE PRECISION,
             participant_limit BIGINT,
@@ -50,6 +51,7 @@ async def init_db():
             status TEXT,
             car_seats BIGINT,
             passenger_of BIGINT,
+            guest_count BIGINT DEFAULT 0,
             joined_at TIMESTAMPTZ
         )
         """,
@@ -225,13 +227,21 @@ async def init_db():
     for statement in index_statements:
         await execute(statement)
 
-    for column_def in ("responsible_id BIGINT", "period_end TEXT"):
+    for column_def in ("responsible_id BIGINT", "period_end TEXT", "link TEXT"):
         column_name = column_def.split()[0]
         try:
             await execute(f"ALTER TABLE events ADD COLUMN IF NOT EXISTS {column_def}")
             logger.info("Ensured column events.%s", column_name)
         except Exception as exc:
             logger.warning("Could not alter events.%s: %s", column_name, exc)
+
+    try:
+        await execute(
+            "ALTER TABLE participants ADD COLUMN IF NOT EXISTS guest_count BIGINT DEFAULT 0"
+        )
+        logger.info("Ensured column participants.guest_count")
+    except Exception as exc:
+        logger.warning("Could not alter participants.guest_count: %s", exc)
 
     for column_def in (
         "title TEXT",

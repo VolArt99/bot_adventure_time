@@ -543,7 +543,7 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
         await finalize_callback(callback, "Готово")
         return
 
-    if action in {"admin_report", "send_events_list", "random_pairs"}:
+    if action in {"admin_report", "send_events_list", "random_pairs", "refresh_event_cards"}:
         if not is_admin_or_owner:
             await finalize_callback(callback, "🔒 Эта команда доступна только организаторам и администраторам", show_alert=True)
             return
@@ -569,6 +569,10 @@ async def menu_action_callback(callback: CallbackQuery, state: FSMContext):
                 "Выбери период для публикации списка мероприятий:",
                 reply_markup=period_keyboard("broadcast_period"),
             )
+        elif action == "refresh_event_cards":
+            from bot.handlers.admin import run_refresh_event_cards
+
+            await run_refresh_event_cards(callback.message)
         else:
             from bot.database import get_random_meeting_opt_in_users
             from bot.keyboards import random_pairs_topics_keyboard

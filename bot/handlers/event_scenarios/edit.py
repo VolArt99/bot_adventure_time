@@ -15,12 +15,14 @@ from bot.keyboards import (
     edit_event_carpool_keyboard,
     edit_event_fields_keyboard,
     edit_event_price_mode_keyboard,
+    duration_unit_keyboard,
 )
 from bot.utils.callbacks import finalize_callback
 from bot.utils.callback_policy import CALLBACK_DELETE_WIZARD_MESSAGE
 from bot.utils.helpers import parse_int_arg
 from bot.utils.ui import answer_private_intermediate
-from .shared import parse_datetime
+from bot.utils.duration import parse_duration_text, apply_duration_unit
+from .shared import parse_datetime, normalize_event_link
 
 logger = logging.getLogger(__name__)
 router = Router(name=__name__)
@@ -125,8 +127,13 @@ async def edit_pick_field(callback: CallbackQuery, state: FSMContext):
         "description": "📄 Введите новое описание (или «-» чтобы очистить):",
         "datetime": "🗓 Введите новую дату и время (ДД.ММ.ГГГГ ЧЧ:ММ):",
         "period_end": "📆 Введите дату окончания периода (ДД.ММ.ГГГГ ЧЧ:ММ) или «-» чтобы убрать:",
-        "duration": "⏱ Введите длительность в часах (например 2.5) или «-» чтобы убрать:",
+        "duration": (
+            "⏱ Введите длительность.\n"
+            "Примеры: 1 ч 30 мин, 90 мин, 2\n"
+            "Или «-» чтобы убрать:"
+        ),
         "location": "📍 Введите новое место или «-» чтобы убрать:",
+        "link": "🔗 Введите ссылку или «-» чтобы убрать:",
         "limit": "👥 Введите лимит участников, «без лимита» или «-»:",
     }
 
@@ -264,13 +271,35 @@ async def edit_apply_value(message: Message, state: FSMContext):
         if text == "-":
             updates["duration_minutes"] = 0
         else:
-            try:
-                updates["duration_minutes"] = int(float(text.replace(",", ".")) * 60)
-            except ValueError:
-                await message.answer("❌ Введите число часов, например 2.5")
+            parsed = parse_duration_text(text)
+            if parsed.error:
+                await message.answer(
+                    "❌ Неверный формат.\nПримеры: 1 ч 30 мин, 90 мин, 2\nИли «-»"
+                )
                 return
+            if parsed.needs_unit:
+                await state.update_data(
+                    edit_field="duration",
+                    pending_duration_value=parsed.raw_value,
+                )
+                await message.answer(
+                    f"⏱ Уточни: <b>{parsed.raw_value:g}</b> — это часы или минуты?",
+                    reply_markup=duration_unit_keyboard(cancel=False),
+                    parse_mode="HTML",
+                )
+                return
+            updates["duration_minutes"] = parsed.minutes or 0
     elif field == "location":
         updates["location"] = None if text == "-" else text
+    elif field == "link":
+        if text == "-":
+            updates["link"] = ""
+        else:
+            link = normalize_event_link(text)
+            if not link:
+                await message.answer("❌ Не похоже на ссылку. Пример: https://example.com")
+                return
+            updates["link"] = link
     elif field == "limit":
         if text in {"-", "без лимита"}:
             updates["participant_limit"] = 0
@@ -302,6 +331,34 @@ async def edit_apply_value(message: Message, state: FSMContext):
     await _refresh_event_card(message.bot, updated)
     await state.set_state(None)
     await _show_edit_menu(message, state, event_id, "✅ Поле обновлено")
+
+
+@router.callback_query(EditEvent.value, F.data.startswith("duration_unit_"))
+async def edit_duration_unit(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    if data.get("edit_field") != "duration":
+        await finalize_callback(callback, "Сначала выберите длительность", show_alert=True)
+        return
+
+    event_id = int(data["edit_event_id"])
+    allowed, event = await _can_edit_event(event_id, callback.from_user.id)
+    if not event or not allowed:
+        await finalize_callback(callback, "Нет доступа", show_alert=True)
+        return
+
+    raw_value = data.get("pending_duration_value")
+    unit = callback.data.removeprefix("duration_unit_")
+    minutes = apply_duration_unit(float(raw_value), unit) if raw_value is not None else None
+    if minutes is None:
+        await finalize_callback(callback, "Некорректное значение", show_alert=True)
+        return
+
+    await update_event(event_id, {"duration_minutes": minutes})
+    updated = await get_event(event_id)
+    await _refresh_event_card(callback.bot, updated)
+    await state.set_state(None)
+    await _show_edit_menu(callback.message, state, event_id, "✅ Длительность обновлена")
+    await finalize_callback(callback, delete_message=CALLBACK_DELETE_WIZARD_MESSAGE)
 
 
 @router.callback_query(EditEvent.category, F.data.startswith("category_group_"))
