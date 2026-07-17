@@ -187,6 +187,10 @@ class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
                 "bot.handlers.common_feature.handlers.approve_pending_user",
                 new=AsyncMock(return_value={"user_id": 42}),
             ),
+            patch(
+                "bot.handlers.common_feature.handlers.is_user_in_group_by_id",
+                new=AsyncMock(return_value=False),
+            ),
         ):
             await common.owner_approve_user(owner_callback)
 
@@ -195,6 +199,29 @@ class OnboardingOwnerChecksTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args[0], 42)
         self.assertIn('напиши капитану: <a href="https://t.me/source_owner">@source_owner</a>', args[1])
         self.assertEqual(kwargs["parse_mode"], "HTML")
+        owner_callback.bot.create_chat_invite_link.assert_awaited_once()
+
+
+    async def test_approve_existing_group_member_skips_invite(self):
+        owner_callback = _FakeCallback(user_id=common.OWNER_ID, data="approve_user_42")
+
+        with (
+            patch(
+                "bot.handlers.common_feature.handlers.approve_pending_user",
+                new=AsyncMock(return_value={"user_id": 42}),
+            ),
+            patch(
+                "bot.handlers.common_feature.handlers.is_user_in_group_by_id",
+                new=AsyncMock(return_value=True),
+            ),
+        ):
+            await common.owner_approve_user(owner_callback)
+
+        owner_callback.bot.create_chat_invite_link.assert_not_awaited()
+        owner_callback.bot.send_message.assert_awaited_once()
+        args, kwargs = owner_callback.bot.send_message.await_args
+        self.assertEqual(args[0], 42)
+        self.assertIn("reply_markup", kwargs)
 
 
     async def test_owner_request_escapes_user_html(self):
@@ -335,19 +362,25 @@ class ParticipationTransitionsTests(unittest.IsolatedAsyncioTestCase):
         move_from_waitlist.assert_not_awaited()
         finalize_callback.assert_awaited()
 
-    async def test_start_in_group_without_bot_approval_does_not_upsert(self):
+    async def test_start_in_group_without_bot_approval_creates_pending_request(self):
         message = _FakeMessage(user_id=11, text="/start")
         message.from_user = SimpleNamespace(id=11, username="u", first_name="A", last_name="B")
+        message.bot = SimpleNamespace(send_message=AsyncMock())
 
         with (
             patch("bot.handlers.common_feature.handlers.get_or_create_user", new=AsyncMock()),
             patch("bot.handlers.common_feature.handlers.is_user_in_group", new=AsyncMock(return_value=True)),
             patch("bot.handlers.common_feature.handlers.is_member_approved", new=AsyncMock(return_value=False)),
             patch("bot.handlers.common_feature.handlers.upsert_approved_member", new=AsyncMock()) as upsert_approved_member,
+            patch(
+                "bot.handlers.common_feature.handlers.ensure_group_member_access_request",
+                new=AsyncMock(return_value="created"),
+            ) as ensure_request,
         ):
             await common.cmd_start(message)
 
         upsert_approved_member.assert_not_awaited()
+        ensure_request.assert_awaited_once()
         message.answer.assert_awaited()
 
 

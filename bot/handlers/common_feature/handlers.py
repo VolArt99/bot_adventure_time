@@ -57,7 +57,14 @@ from bot.keyboards import (
     rules_ack_keyboard,
 )
 
-from .services import extract_command, is_user_in_group, notify_owner_about_request, notify_owner_about_member_start
+from .services import (
+    ensure_group_member_access_request,
+    extract_command,
+    is_user_in_group,
+    is_user_in_group_by_id,
+    notify_owner_about_request,
+    notify_owner_about_member_start,
+)
 from .views import (
     build_approval_message,
     build_approved_member_start_text,
@@ -90,6 +97,23 @@ def _owner_contact_html() -> str:
     return build_owner_contact_html(OWNER_CONTACT or "@Vol_Artem", OWNER_ID)
 
 
+async def _handle_unapproved_group_member(message: Message, *, user_id: int, username: str | None, full_name: str) -> None:
+    """Создаёт заявку на доступ к боту и отвечает участнику группы."""
+    status = await ensure_group_member_access_request(
+        message.bot,
+        user_id=user_id,
+        username=username,
+        full_name=full_name,
+    )
+    if status == "exists":
+        await message.answer(build_pending_request_text())
+        return
+    await message.answer(
+        build_group_member_bot_access_denied_text(owner_contact_html=_owner_contact_html()),
+        parse_mode="HTML",
+    )
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     user_id = message.from_user.id
@@ -99,9 +123,11 @@ async def cmd_start(message: Message):
     try:
         if await is_user_in_group(message, user_id=user_id):
             if not await is_member_approved(user_id):
-                await message.answer(
-                    build_group_member_bot_access_denied_text(owner_contact_html=_owner_contact_html()),
-                    parse_mode="HTML",
+                await _handle_unapproved_group_member(
+                    message,
+                    user_id=user_id,
+                    username=username,
+                    full_name=full_name,
                 )
                 return
 
@@ -141,9 +167,11 @@ async def rules_ack(callback: CallbackQuery):
     full_name = " ".join(filter(None, [user.first_name, user.last_name])).strip()
     if await is_user_in_group(callback.message, user_id=user.id):
         if not await is_member_approved(user.id):
-            await callback.message.answer(
-                build_group_member_bot_access_denied_text(owner_contact_html=_owner_contact_html()),
-                parse_mode="HTML",
+            await _handle_unapproved_group_member(
+                callback.message,
+                user_id=user.id,
+                username=user.username,
+                full_name=full_name,
             )
         else:
             existing = await get_approved_member(user.id)
@@ -193,15 +221,22 @@ async def owner_approve_user(callback: CallbackQuery):
         return
 
     try:
-        invite = await callback.bot.create_chat_invite_link(chat_id=GROUP_ID, member_limit=1)
-        await callback.bot.send_message(
-            user_id,
-            build_approval_message(
-                invite_link=invite.invite_link,
-                owner_contact_html=_owner_contact_html(),
-            ),
-            parse_mode="HTML",
-        )
+        if await is_user_in_group_by_id(callback.bot, user_id):
+            await callback.bot.send_message(
+                user_id,
+                build_approved_member_start_text(),
+                reply_markup=start_menu_keyboard(),
+            )
+        else:
+            invite = await callback.bot.create_chat_invite_link(chat_id=GROUP_ID, member_limit=1)
+            await callback.bot.send_message(
+                user_id,
+                build_approval_message(
+                    invite_link=invite.invite_link,
+                    owner_contact_html=_owner_contact_html(),
+                ),
+                parse_mode="HTML",
+            )
     except (TelegramForbiddenError, TelegramBadRequest) as exc:
         logger.warning(
             "invite_send_failed user_id=%s command=%s event_id=%s error=%s",

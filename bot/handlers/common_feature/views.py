@@ -34,11 +34,21 @@ def build_approved_member_start_text() -> str:
 
 
 def build_group_member_bot_access_denied_text(*, owner_contact_html: str) -> str:
-    """Текст для участника группы без одобрения бота."""
+    """Текст для участника группы без одобрения бота (заявка уже отправлена)."""
     return (
         "👋 Ты уже в группе Telegram, но бот ещё не подтвердил твой доступ.\n\n"
-        "Попроси капитана одобрить тебя через бота или дождись ручной синхронизации.\n"
-        f"Связаться: {owner_contact_html}"
+        "✅ Заявка отправлена капитану — дождись одобрения в боте.\n"
+        f"Если долго нет ответа — напиши: {owner_contact_html}"
+    )
+
+
+def build_owner_group_member_request_text(*, user_id: int, full_name: str, username: str | None) -> str:
+    username_text = f"@{username}" if username else "—"
+    return (
+        "🆕 Участник уже в группе и запрашивает доступ к боту:\n"
+        f"• ID: {int(user_id)}\n"
+        f"• Имя: {escape(full_name or '—')}\n"
+        f"• Username: {escape(username_text)}"
     )
 
 
