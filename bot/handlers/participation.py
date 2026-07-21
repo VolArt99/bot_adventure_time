@@ -70,6 +70,17 @@ def resolve_participation_status(user_id: int, going: list[int], waitlist: list[
 PARTICIPATION_CALLBACK_RATE_LIMIT_SECONDS = 1.5
 
 
+async def _answer_in_user_dm(message: Message, text: str, **kwargs):
+    """Отвечает пользователю только в ЛС, даже если FSM-ответ пришёл из группы."""
+    if message.chat.type == "private":
+        return await message.answer(text, **kwargs)
+    try:
+        return await message.bot.send_message(message.from_user.id, text, **kwargs)
+    except TelegramForbiddenError:
+        logger.info("Не удалось отправить FSM-ответ в ЛС user_id=%s", message.from_user.id)
+        return None
+
+
 async def _answer_if_participation_rate_limited(
     callback: CallbackQuery,
     *,
@@ -351,19 +362,38 @@ async def seek_ride_toggle(callback: CallbackQuery):
 async def confirm_attendance(callback: CallbackQuery):
     event_id = parse_callback_suffix_int(callback.data, prefix="confirm_attendance_")
     if event_id is None:
-        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        await finalize_callback(
+            callback,
+            "Некорректные данные",
+            show_alert=True,
+            delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+        )
         return
     user_id = callback.from_user.id
     event = await get_event(event_id)
     if not event or event["status"] != "active":
-        await finalize_callback(callback, "Мероприятие недоступно", show_alert=True)
+        await finalize_callback(
+            callback,
+            "Мероприятие недоступно",
+            show_alert=True,
+            delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+        )
         return
     main = await get_main_participants(event_id)
     if user_id not in main:
-        await finalize_callback(callback, "Тебя нет в списке участников", show_alert=True)
+        await finalize_callback(
+            callback,
+            "Тебя нет в списке участников",
+            show_alert=True,
+            delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+        )
         return
     await set_attendance_response(event_id, user_id, "confirmed")
-    await finalize_callback(callback, await _attendance_reply_text(event_id, confirmed=True))
+    await finalize_callback(
+        callback,
+        await _attendance_reply_text(event_id, confirmed=True),
+        delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+    )
 
 
 @router.callback_query(F.data.startswith("decline_attendance_"))
@@ -371,16 +401,31 @@ async def confirm_attendance(callback: CallbackQuery):
 async def decline_attendance(callback: CallbackQuery):
     event_id = parse_callback_suffix_int(callback.data, prefix="decline_attendance_")
     if event_id is None:
-        await finalize_callback(callback, "Некорректные данные", show_alert=True)
+        await finalize_callback(
+            callback,
+            "Некорректные данные",
+            show_alert=True,
+            delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+        )
         return
     user_id = callback.from_user.id
     event = await get_event(event_id)
     if not event or event["status"] != "active":
-        await finalize_callback(callback, "Мероприятие недоступно", show_alert=True)
+        await finalize_callback(
+            callback,
+            "Мероприятие недоступно",
+            show_alert=True,
+            delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+        )
         return
     main = await get_main_participants(event_id)
     if user_id not in main:
-        await finalize_callback(callback, "Тебя нет в списке участников", show_alert=True)
+        await finalize_callback(
+            callback,
+            "Тебя нет в списке участников",
+            show_alert=True,
+            delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+        )
         return
     await set_attendance_response(event_id, user_id, "declined")
     removed = await remove_participant(event_id, user_id)
@@ -399,7 +444,11 @@ async def decline_attendance(callback: CallbackQuery):
         await update_event_message(
             callback.bot, event_id, event["thread_id"], event["message_id"]
         )
-    await finalize_callback(callback, await _attendance_reply_text(event_id, confirmed=False))
+    await finalize_callback(
+        callback,
+        await _attendance_reply_text(event_id, confirmed=False),
+        delete_message=CALLBACK_DELETE_WIZARD_MESSAGE,
+    )
 
 
 @router.callback_query(F.data.startswith("guests_"))
@@ -460,51 +509,58 @@ async def process_guest_count(message: Message, state: FSMContext):
     event_id = data.get("guest_event_id")
     if not event_id:
         await state.clear()
-        await message.answer("❌ Сессия сброшена. Нажми «Гости» на карточке снова.")
+        await _answer_in_user_dm(
+            message,
+            "❌ Сессия сброшена. Нажми «Гости» на карточке снова.",
+        )
         return
 
     text = (message.text or "").strip()
     try:
         guest_count = int(text)
     except ValueError:
-        await message.answer("❌ Введи целое число гостей (например: 2). 0 — убрать гостей.")
+        await _answer_in_user_dm(
+            message,
+            "❌ Введи целое число гостей (например: 2). 0 — убрать гостей.",
+        )
         return
     if guest_count < 0:
-        await message.answer("❌ Число гостей не может быть отрицательным.")
+        await _answer_in_user_dm(message, "❌ Число гостей не может быть отрицательным.")
         return
 
     event = await get_event(int(event_id))
     if not event or event["status"] != "active":
         await state.clear()
-        await message.answer("❌ Мероприятие уже завершено или отменено.")
+        await _answer_in_user_dm(message, "❌ Мероприятие уже завершено или отменено.")
         return
 
     result = await set_participant_guest_count(int(event_id), message.from_user.id, guest_count)
     if result == "not_participant":
         await state.clear()
-        await message.answer("❌ Сначала запишись на мероприятие («В путь!»).")
+        await _answer_in_user_dm(message, "❌ Сначала запишись на мероприятие («В путь!»).")
         return
     if result == "full":
         occupied = await get_occupied_seats(int(event_id))
         limit = int(event.get("participant_limit") or 0)
         current_guests = int((await get_main_guest_counts(int(event_id))).get(message.from_user.id, 0) or 0)
         max_guests = max(0, limit - occupied + current_guests) if limit > 0 else guest_count
-        await message.answer(
+        await _answer_in_user_dm(
+            message,
             f"❌ Не хватает мест на мероприятии.\n"
             f"Можно указать не больше {max_guests} гостей."
         )
         return
     if result != "ok":
-        await message.answer("❌ Не удалось сохранить число гостей.")
+        await _answer_in_user_dm(message, "❌ Не удалось сохранить число гостей.")
         return
 
     await state.clear()
     if guest_count == 0:
-        await message.answer("✅ Гости убраны с карточки.")
+        await _answer_in_user_dm(message, "✅ Гости убраны с карточки.")
     else:
         from bot.texts import format_guest_suffix
 
-        await message.answer(f"✅ Готово:{format_guest_suffix(guest_count)}")
+        await _answer_in_user_dm(message, f"✅ Готово:{format_guest_suffix(guest_count)}")
 
     if event.get("message_id"):
         await update_event_message(
@@ -555,10 +611,10 @@ async def process_car_seats(message: Message, state: FSMContext):
     try:
         seats = int(message.text)
         if seats < 1:
-            await message.answer("Число мест должно быть больше 0. Попробуй ещё раз:")
+            await _answer_in_user_dm(message, "Число мест должно быть больше 0. Попробуй ещё раз:")
             return
     except ValueError:
-        await message.answer("Введи число:")
+        await _answer_in_user_dm(message, "Введи число:")
         return
     data = await state.get_data()
     event_id = data["event_id"]
@@ -566,7 +622,8 @@ async def process_car_seats(message: Message, state: FSMContext):
     # Добавляем водителя
     success = await add_driver(event_id, user_id, seats)
     if not success:
-        await message.answer(
+        await _answer_in_user_dm(
+            message,
             "Не удалось добавить водителя. Возможно, ты уже участвуешь."
         )
         await state.clear()
@@ -580,7 +637,7 @@ async def process_car_seats(message: Message, state: FSMContext):
     await update_event_message(
         message.bot, event_id, event["thread_id"], event["message_id"]
     )
-    await message.answer(brand_voice("carpool_driver_added"))
+    await _answer_in_user_dm(message, brand_voice("carpool_driver_added"))
     await state.clear()
 
 

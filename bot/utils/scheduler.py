@@ -180,6 +180,22 @@ async def schedule_reminders_for_event_data(event: dict, bot, *, skipped: list[s
         elif skipped is not None:
             skipped.append(job_id)
 
+
+    cleanup_job_id = f"reminder_cleanup_{event['id']}"
+    if event_time > now:
+        scheduler.add_job(
+            delete_event_reminders_at_start,
+            trigger="date",
+            run_date=event_time,
+            args=[event["id"], bot],
+            id=cleanup_job_id,
+            replace_existing=True,
+        )
+        logger.info("Запланировано удаление напоминаний %s на %s", cleanup_job_id, event_time)
+    elif skipped is not None:
+        skipped.append(cleanup_job_id)
+
+
     await schedule_attendance_for_event_data(event, bot, skipped=skipped)
     await schedule_empty_event_alert(event, bot, skipped=skipped)
 
@@ -212,6 +228,11 @@ async def _delete_previous_reminders(bot, event_id: int) -> None:
                 pass
 
 
+async def delete_event_reminders_at_start(event_id: int, bot) -> None:
+    """Удаляет последнее напоминание в ЛС/теме в момент старта мероприятия."""
+    await _delete_previous_reminders(bot, event_id)
+
+
 async def send_reminder(event_id: int, interval: int, bot):
     """Отправляет напоминание участникам."""
     try:
@@ -225,7 +246,7 @@ async def send_reminder(event_id: int, interval: int, bot):
 
         minutes_until = interval // 60
 
-        from bot.texts import format_group_reminder_text, format_reminder_text
+        from bot.texts import format_reminder_text
         from bot.utils.helpers import build_event_message_link
         from bot.utils.notifications import send_private_dm
 
@@ -250,26 +271,9 @@ async def send_reminder(event_id: int, interval: int, bot):
             if isinstance(message_id, int):
                 dm_message_ids[uid] = message_id
 
-        group_message_id: int | None = None
-        if event.get("thread_id"):
-            group_text = format_group_reminder_text(
-                event["title"],
-                minutes_until,
-                event_link=event_link,
-            )
-            group_message = await bot.send_message(
-                chat_id=GROUP_ID,
-                message_thread_id=event["thread_id"],
-                text=group_text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-            group_message_id = group_message.message_id
-
-        if dm_message_ids or group_message_id is not None:
+        if dm_message_ids:
             _reminder_message_ids[event_id] = {
                 "dm": dm_message_ids,
-                "group": group_message_id,
             }
 
         logger.info(f"Напоминание отправлено для мероприятия {event_id}")
